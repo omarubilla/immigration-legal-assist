@@ -117,7 +117,7 @@ export function Header({ categories }: HeaderProps) {
                   key={category._id}
                   variant="ghost"
                   asChild
-                  className="h-8 bg-sky-300 px-3 text-sm text-white hover:bg-sky-400 hover:text-white"
+                  className="h-8 bg-sky-600 px-3 text-sm text-white hover:bg-sky-700 hover:text-white"
                 >
                   <Link href={`/?category=${category.slug}`}>{category.title}</Link>
                 </Button>
@@ -128,7 +128,7 @@ export function Header({ categories }: HeaderProps) {
               <div key={category._id} className="group relative">
                 <Button
                   variant="ghost"
-                  className="h-8 bg-sky-300 px-3 text-sm text-white hover:bg-sky-400 hover:text-white"
+                  className="h-8 bg-sky-600 px-3 text-sm text-white hover:bg-sky-700 hover:text-white"
                 >
                   {category.title}
                   <ChevronDown className="ml-1 h-4 w-4" />
