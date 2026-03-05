@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import Link from "next/link";
+import { HandHeart, ShieldCheck, Truck } from "lucide-react";
 import { sanityFetch } from "@/sanity/lib/live";
 import {
   FEATURED_PRODUCTS_QUERY,
@@ -13,7 +14,8 @@ import { ProductSection } from "@/components/app/ProductSection";
 import { CategoryTiles } from "@/components/app/CategoryTiles";
 import { FeaturedCarousel } from "@/components/app/FeaturedCarousel";
 import { FeaturedCarouselSkeleton } from "@/components/app/FeaturedCarouselSkeleton";
-import { Button } from "@/components/ui/button";
+import { NewsCarousel } from "@/components/news/NewsCarousel";
+import { newsItems } from "@/data/news";
 
 interface PageProps {
   searchParams: Promise<{
@@ -97,24 +99,102 @@ export default async function HomePage({ searchParams }: PageProps) {
 
       <section className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
         <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-800 dark:bg-zinc-900/50 sm:p-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500 dark:text-zinc-400">
-                  Services
-                </p>
-                <h2 className="mt-2 text-xl font-bold text-zinc-900 dark:text-zinc-100 sm:text-2xl">
-                  Discover our research support services
-                </h2>
-                <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-                  Explore assay development, custom requests, and scientific support.
-                </p>
+          <div className="grid items-start gap-10 lg:grid-cols-2 lg:gap-12">
+            <div className="py-2 sm:py-4">
+              <h2 className="text-4xl font-bold tracking-tight text-zinc-950 dark:text-zinc-100 sm:text-5xl lg:text-6xl">
+                <span className="block">We Provide You</span>
+                <span className="mt-2 block text-blue-600 dark:text-blue-400">
+                  Custom Biochemical
+                </span>
+                <span className="mt-2 block">Solutions</span>
+              </h2>
+
+              <p className="mt-8 max-w-xl text-lg leading-relaxed text-zinc-600 dark:text-zinc-300 sm:text-2xl">
+                Assay development, protein labeling and antibody conjugation,
+                expression, and purification.
+              </p>
+
+              <p className="mt-8 max-w-xl text-lg leading-relaxed text-zinc-600 dark:text-zinc-300 sm:text-2xl">
+                Providing you with unmatched quality, innovation, and a touch of
+                genius.
+              </p>
+
+              <div className="mt-10">
+                <Link
+                  href="/services"
+                  className="inline-flex items-center rounded-full bg-gradient-to-r from-sky-400 to-blue-600 px-8 py-3 text-lg font-medium text-white shadow-lg transition-all hover:from-sky-500 hover:to-blue-700 hover:shadow-xl sm:px-9 sm:py-4 sm:text-2xl"
+                >
+                  Custom Order
+                </Link>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-8 py-2 sm:py-4">
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <p className="text-3xl font-bold tracking-tight text-zinc-950 dark:text-zinc-100 sm:text-4xl">
+                    11
+                  </p>
+                  <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400 sm:text-lg">
+                    Distributors
+                  </p>
+                </div>
+                <div>
+                  <p className="text-3xl font-bold tracking-tight text-zinc-950 dark:text-zinc-100 sm:text-4xl">
+                    100+
+                  </p>
+                  <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400 sm:text-lg">
+                    Products
+                  </p>
+                </div>
+                <div>
+                  <p className="text-3xl font-bold tracking-tight text-zinc-950 dark:text-zinc-100 sm:text-4xl">
+                    250k+
+                  </p>
+                  <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400 sm:text-lg">
+                    Customers
+                  </p>
+                </div>
               </div>
 
-              <div className="flex flex-wrap gap-2">
-                <Button asChild className="bg-blue-600 text-white hover:bg-blue-700">
-                  <Link href="/services">Services</Link>
-                </Button>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <article className="flex flex-col items-center rounded-3xl bg-zinc-50 p-4 text-center shadow-sm ring-1 ring-zinc-200/60 dark:bg-zinc-900/50 dark:ring-zinc-800">
+                  <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-r from-sky-400 to-blue-600 text-white shadow-md">
+                    <Truck className="h-5 w-5" />
+                  </div>
+                  <h3 className="whitespace-nowrap text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-100">
+                    Fast shipping
+                  </h3>
+                  <p className="mt-2 h-12 overflow-hidden text-base leading-6 text-zinc-600 dark:text-zinc-300">
+                    Enjoy seamless shopping with our worldwide shipping service.
+                  </p>
+                </article>
+
+                <article className="flex flex-col items-center rounded-3xl bg-zinc-50 p-4 text-center shadow-sm ring-1 ring-zinc-200/60 dark:bg-zinc-900/50 dark:ring-zinc-800">
+                  <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-r from-sky-400 to-blue-600 text-white shadow-md">
+                    <ShieldCheck className="h-5 w-5" />
+                  </div>
+                  <h3 className="whitespace-nowrap text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-100">
+                    Secure Payment
+                  </h3>
+                  <p className="mt-2 h-12 overflow-hidden text-base leading-6 text-zinc-600 dark:text-zinc-300">
+                    Experience worry-free transactions with our secure payment
+                    options.
+                  </p>
+                </article>
+
+                <article className="flex flex-col items-center rounded-3xl bg-zinc-50 p-4 text-center shadow-sm ring-1 ring-zinc-200/60 dark:bg-zinc-900/50 dark:ring-zinc-800">
+                  <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-r from-sky-400 to-blue-600 text-white shadow-md">
+                    <HandHeart className="h-5 w-5" />
+                  </div>
+                  <h3 className="whitespace-nowrap text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-100">
+                    Love to help you
+                  </h3>
+                  <p className="mt-2 h-12 overflow-hidden text-base leading-6 text-zinc-600 dark:text-zinc-300">
+                    Our dedicated team is here to assist you every step of the
+                    way.
+                  </p>
+                </article>
               </div>
             </div>
           </div>
@@ -152,21 +232,7 @@ export default async function HomePage({ searchParams }: PageProps) {
         />
       </div>
 
-      <section className="border-t border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
-        <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-6 dark:border-zinc-800 dark:bg-zinc-900/50">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500 dark:text-zinc-400">
-              News
-            </p>
-            <h2 className="mt-2 text-2xl font-bold text-zinc-900 dark:text-zinc-100">
-              News
-            </h2>
-            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-              Latest updates, announcements, and research highlights coming soon.
-            </p>
-          </div>
-        </div>
-      </section>
+      <NewsCarousel items={newsItems} />
     </div>
   );
 }
