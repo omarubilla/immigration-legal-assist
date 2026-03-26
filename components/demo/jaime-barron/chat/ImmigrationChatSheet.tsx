@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { Scale, Send, Loader2, X, User, Phone, ChevronLeft } from "lucide-react";
+import { Scale, Send, Loader2, X, User, Phone, ChevronLeft, Mic, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ImmigrationWelcomeScreen } from "./ImmigrationWelcomeScreen";
@@ -117,6 +117,70 @@ const LANGUAGES = [
   { code: "pt", label: "Português", flag: "🇧🇷" },
   { code: "fr", label: "Français", flag: "🇫🇷" },
 ] as const;
+
+type BrowserSpeechRecognition = {
+  lang: string;
+  interimResults: boolean;
+  maxAlternatives: number;
+  continuous: boolean;
+  start: () => void;
+  stop: () => void;
+  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onerror: ((event: { error?: string }) => void) | null;
+  onend: (() => void) | null;
+};
+
+type BrowserSpeechRecognitionCtor = new () => BrowserSpeechRecognition;
+
+type VoiceStatusCode = "idle" | "listening" | "processing" | "unsupported" | "permission-denied" | "error";
+
+const AUTO_SPEAK_STORAGE_KEY = "jaime-barron-chat-auto-speak";
+
+const SPEECH_LANG_BY_UI_LANG: Record<LangCode, string> = {
+  en: "en-US",
+  es: "es-ES",
+  pt: "pt-BR",
+  fr: "fr-FR",
+};
+
+function getVoiceStatusLabel(lang: LangCode, status: VoiceStatusCode): string {
+  const copyByLang: Record<LangCode, Record<VoiceStatusCode, string>> = {
+    en: {
+      idle: "Voice ready",
+      listening: "Listening... speak now",
+      processing: "Processing voice input...",
+      unsupported: "Voice input is not supported in this browser",
+      "permission-denied": "Microphone permission denied",
+      error: "Voice input error. Please try again",
+    },
+    es: {
+      idle: "Voz lista",
+      listening: "Escuchando... hable ahora",
+      processing: "Procesando entrada de voz...",
+      unsupported: "La entrada de voz no es compatible con este navegador",
+      "permission-denied": "Permiso de microfono denegado",
+      error: "Error de voz. Intentelo de nuevo",
+    },
+    pt: {
+      idle: "Voz pronta",
+      listening: "Ouvindo... fale agora",
+      processing: "Processando entrada de voz...",
+      unsupported: "Entrada de voz nao suportada neste navegador",
+      "permission-denied": "Permissao de microfone negada",
+      error: "Erro de voz. Tente novamente",
+    },
+    fr: {
+      idle: "Voix prete",
+      listening: "Ecoute en cours... parlez maintenant",
+      processing: "Traitement de la voix en cours...",
+      unsupported: "La saisie vocale n'est pas prise en charge par ce navigateur",
+      "permission-denied": "Autorisation du microphone refusee",
+      error: "Erreur vocale. Veuillez reessayer",
+    },
+  };
+
+  return copyByLang[lang][status];
+}
 
 type LangCode = (typeof LANGUAGES)[number]["code"];
 
@@ -516,8 +580,15 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
   const [consultationTripRows, setConsultationTripRows] = useState<ConsultationTripRow[]>([]);
   const [consultationArrestCount, setConsultationArrestCount] = useState<number | null>(null);
   const [consultationArrestRows, setConsultationArrestRows] = useState<ConsultationArrestRow[]>([]);
+  const [isListening, setIsListening] = useState(false);
+  const [isVoiceInputSupported, setIsVoiceInputSupported] = useState(false);
+  const [isSpeechOutputSupported, setIsSpeechOutputSupported] = useState(false);
+  const [autoSpeakEnabled, setAutoSpeakEnabled] = useState(true);
+  const [voiceStatus, setVoiceStatus] = useState<VoiceStatusCode>("idle");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const consultationIdRef = useRef(0);
+  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const lastSpokenAssistantIdRef = useRef<string | null>(null);
   const copy = uiCopy[lang];
   const isConsultationMode = mode === "consultation";
   const isEntryTableActive = isConsultationMode && consultationStep === "entries" && consultationEntryCount !== null;
@@ -531,10 +602,78 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
   });
 
   const isLoading = status === "streaming" || status === "submitted";
+  const isInputLocked =
+    isLoading ||
+    isEntryTableActive ||
+    isArrestsTableActive ||
+    (isConsultationMode && consultationStep === "complete");
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, consultationMessages, isLoading]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const speechWindow = window as Window & {
+      SpeechRecognition?: BrowserSpeechRecognitionCtor;
+      webkitSpeechRecognition?: BrowserSpeechRecognitionCtor;
+    };
+
+    const SpeechRecognitionCtor = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
+    setIsVoiceInputSupported(Boolean(SpeechRecognitionCtor));
+    setIsSpeechOutputSupported("speechSynthesis" in window);
+    setVoiceStatus(SpeechRecognitionCtor ? "idle" : "unsupported");
+
+    const persistedAutoSpeak = window.localStorage.getItem(AUTO_SPEAK_STORAGE_KEY);
+    if (persistedAutoSpeak === "true") {
+      setAutoSpeakEnabled(true);
+    } else if (persistedAutoSpeak === "false") {
+      setAutoSpeakEnabled(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(AUTO_SPEAK_STORAGE_KEY, String(autoSpeakEnabled));
+  }, [autoSpeakEnabled]);
+
+  useEffect(() => {
+    if (!isOpen || mode !== "chat" || isLoading || !autoSpeakEnabled || typeof window === "undefined") return;
+
+    const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
+    if (!lastAssistant) return;
+    if (lastSpokenAssistantIdRef.current === lastAssistant.id) return;
+
+    const text = getMessageText(lastAssistant).trim();
+    if (!text) return;
+
+    lastSpokenAssistantIdRef.current = lastAssistant.id;
+
+    if (!("speechSynthesis" in window)) return;
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    const speechLang = SPEECH_LANG_BY_UI_LANG[lang];
+    utterance.lang = speechLang;
+
+    const voices = window.speechSynthesis.getVoices();
+    const matchedVoice = voices.find((voice) => voice.lang.toLowerCase().startsWith(speechLang.slice(0, 2).toLowerCase()));
+    if (matchedVoice) {
+      utterance.voice = matchedVoice;
+    }
+
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  }, [isOpen, mode, messages, isLoading, lang, autoSpeakEnabled]);
+
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.stop();
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
 
   const nextConsultationId = () => `consult-${consultationIdRef.current++}`;
 
@@ -714,20 +853,82 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
     setConsultationStep("policeHelp");
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || isLoading) return;
+  const submitText = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || isLoading) return;
 
     if (isConsultationMode && consultationStep !== "complete") {
-      completeConsultationStep(input.trim());
-      setInput("");
+      completeConsultationStep(trimmed);
       return;
     }
 
     setShowWelcome(false);
     setMode("chat");
-    sendMessage({ text: input });
+    sendMessage({ text: trimmed });
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    submitText(input);
     setInput("");
+  };
+
+  const toggleVoiceInput = () => {
+    if (!isVoiceInputSupported || isInputLocked || typeof window === "undefined") return;
+
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      setVoiceStatus("idle");
+      return;
+    }
+
+    const speechWindow = window as Window & {
+      SpeechRecognition?: BrowserSpeechRecognitionCtor;
+      webkitSpeechRecognition?: BrowserSpeechRecognitionCtor;
+    };
+    const SpeechRecognitionCtor = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
+    if (!SpeechRecognitionCtor) return;
+
+    const recognition = new SpeechRecognitionCtor();
+    recognitionRef.current = recognition;
+    recognition.lang = SPEECH_LANG_BY_UI_LANG[lang];
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.continuous = false;
+
+    recognition.onresult = (event) => {
+      setVoiceStatus("processing");
+      const transcript = Array.from(event.results)
+        .map((result) => result[0]?.transcript ?? "")
+        .join(" ")
+        .trim();
+
+      if (!transcript) {
+        setVoiceStatus("idle");
+        return;
+      }
+      setInput(transcript);
+      submitText(transcript);
+      setInput("");
+      setVoiceStatus("idle");
+    };
+
+    recognition.onerror = (event) => {
+      setVoiceStatus(event.error === "not-allowed" ? "permission-denied" : "error");
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      setVoiceStatus((previous) =>
+        previous === "listening" || previous === "processing" ? "idle" : previous,
+      );
+    };
+
+    recognition.start();
+    setIsListening(true);
+    setVoiceStatus("listening");
   };
 
   const handleSuggestionClick: Parameters<typeof ImmigrationWelcomeScreen>[0]["onSuggestionClick"] = (msg) => {
@@ -1175,22 +1376,29 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
               onChange={(e) => setInput(e.target.value)}
               placeholder={activePlaceholder}
               className="flex-1 text-sm"
-              disabled={
-                isLoading ||
-                isEntryTableActive ||
-                isArrestsTableActive ||
-                (isConsultationMode && consultationStep === "complete")
-              }
+              disabled={isInputLocked}
             />
+            <Button
+              type="button"
+              size="icon"
+              onClick={toggleVoiceInput}
+              disabled={!isVoiceInputSupported || isInputLocked}
+              className={`shrink-0 ${
+                isListening
+                  ? "bg-rose-500 hover:bg-rose-600 text-white"
+                  : "bg-slate-200 hover:bg-slate-300 text-slate-700"
+              }`}
+              aria-label={isListening ? "Stop voice input" : "Start voice input"}
+              title={isListening ? "Stop voice input" : "Start voice input"}
+            >
+              {isListening ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+            </Button>
             <Button
               type="submit"
               size="icon"
               disabled={
                 !input.trim() ||
-                isLoading ||
-                isEntryTableActive ||
-                isArrestsTableActive ||
-                (isConsultationMode && consultationStep === "complete")
+                isInputLocked
               }
               className="bg-[#a9f04d] hover:bg-[#97d844] text-slate-950 shrink-0"
             >
@@ -1201,6 +1409,21 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
               )}
             </Button>
           </form>
+          <div className="mt-2 flex items-center justify-between gap-2 rounded-md bg-slate-100 px-2.5 py-1.5 text-[11px] text-slate-600">
+            <span>{getVoiceStatusLabel(lang, voiceStatus)}</span>
+            <button
+              type="button"
+              onClick={() => setAutoSpeakEnabled((current) => !current)}
+              disabled={!isSpeechOutputSupported}
+              className={`rounded-full px-2 py-0.5 font-medium transition-colors ${
+                autoSpeakEnabled && isSpeechOutputSupported
+                  ? "bg-[#a9f04d] text-slate-900"
+                  : "bg-slate-200 text-slate-500"
+              }`}
+            >
+              {autoSpeakEnabled ? "Auto-speak: ON" : "Auto-speak: OFF"}
+            </button>
+          </div>
           <p className="text-xs text-slate-400 mt-2 text-center">
             {copy.disclaimer}
           </p>
