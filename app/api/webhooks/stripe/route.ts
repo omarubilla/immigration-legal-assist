@@ -4,21 +4,32 @@ import Stripe from "stripe";
 import { client, writeClient } from "@/sanity/lib/client";
 import { ORDER_BY_STRIPE_PAYMENT_ID_QUERY } from "@/lib/sanity/queries/orders";
 
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error("STRIPE_SECRET_KEY is not defined");
+function getStripeConfig() {
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  if (!secretKey || !webhookSecret) {
+    return null;
+  }
+
+  return {
+    stripe: new Stripe(secretKey, {
+      apiVersion: "2026-01-28.clover",
+    }),
+    webhookSecret,
+  };
 }
-
-if (!process.env.STRIPE_WEBHOOK_SECRET) {
-  throw new Error("STRIPE_WEBHOOK_SECRET is not defined");
-}
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2026-01-28.clover",
-});
-
-const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
 export async function POST(req: Request) {
+  const stripeConfig = getStripeConfig();
+  if (!stripeConfig) {
+    return NextResponse.json(
+      { error: "Stripe webhook is not configured" },
+      { status: 503 }
+    );
+  }
+
+  const { stripe, webhookSecret } = stripeConfig;
   const body = await req.text();
   const headersList = await headers();
   const signature = headersList.get("stripe-signature");
@@ -47,7 +58,7 @@ export async function POST(req: Request) {
   switch (event.type) {
     case "checkout.session.completed": {
       const session = event.data.object as Stripe.Checkout.Session;
-      await handleCheckoutCompleted(session);
+      await handleCheckoutCompleted(session, stripe);
       break;
     }
     default:
@@ -57,7 +68,10 @@ export async function POST(req: Request) {
   return NextResponse.json({ received: true });
 }
 
-async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
+async function handleCheckoutCompleted(
+  session: Stripe.Checkout.Session,
+  stripe: Stripe
+) {
   const stripePaymentId = session.payment_intent as string;
 
   try {

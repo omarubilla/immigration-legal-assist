@@ -4,13 +4,16 @@ import Stripe from "stripe";
 import { client, writeClient } from "@/sanity/lib/client";
 import { CUSTOMER_BY_EMAIL_QUERY } from "@/lib/sanity/queries/customers";
 
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error("STRIPE_SECRET_KEY is not defined");
-}
+function getStripeClient() {
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  if (!secretKey) {
+    return null;
+  }
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2026-01-28.clover",
-});
+  return new Stripe(secretKey, {
+    apiVersion: "2026-01-28.clover",
+  });
+}
 
 /**
  * Gets or creates a Stripe customer by email
@@ -21,6 +24,11 @@ export async function getOrCreateStripeCustomer(
   name: string,
   clerkUserId: string
 ): Promise<{ stripeCustomerId: string; sanityCustomerId: string }> {
+  const stripe = getStripeClient();
+  if (!stripe) {
+    throw new Error("Checkout is not configured: STRIPE_SECRET_KEY is missing");
+  }
+
   // First, check if customer already exists in Sanity
   const existingCustomer = await client.fetch(CUSTOMER_BY_EMAIL_QUERY, {
     email,

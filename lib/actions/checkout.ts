@@ -6,13 +6,16 @@ import { client } from "@/sanity/lib/client";
 import { PRODUCTS_BY_IDS_QUERY } from "@/lib/sanity/queries/products";
 import { getOrCreateStripeCustomer } from "@/lib/actions/customer";
 
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error("STRIPE_SECRET_KEY is not defined");
-}
+function getStripeClient() {
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  if (!secretKey) {
+    return null;
+  }
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2026-01-28.clover",
-});
+  return new Stripe(secretKey, {
+    apiVersion: "2026-01-28.clover",
+  });
+}
 
 // Types
 interface CartItem {
@@ -37,6 +40,14 @@ export async function createCheckoutSession(
   items: CartItem[]
 ): Promise<CheckoutResult> {
   try {
+    const stripe = getStripeClient();
+    if (!stripe) {
+      return {
+        success: false,
+        error: "Checkout is not configured right now",
+      };
+    }
+
     // 1. Verify user is authenticated
     const { userId } = await auth();
     const user = await currentUser();
@@ -213,6 +224,11 @@ export async function createCheckoutSession(
  */
 export async function getCheckoutSession(sessionId: string) {
   try {
+    const stripe = getStripeClient();
+    if (!stripe) {
+      return { success: false, error: "Checkout is not configured" };
+    }
+
     const { userId } = await auth();
 
     if (!userId) {
