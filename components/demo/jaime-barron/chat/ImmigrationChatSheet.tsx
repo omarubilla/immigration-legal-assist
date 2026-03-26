@@ -34,8 +34,33 @@ interface ConsultationArrestRow {
   outcomeSentence: string;
 }
 
+interface PendingExitEstimate {
+  rowIndex: number;
+  inferredExitDate: string;
+  prompt: string;
+}
+
+interface PendingChargeConfirmation {
+  rowIndex: number;
+  proposedCharge: string;
+}
+
+interface InferredExitEstimate {
+  inferredExitDate: string;
+  prompt: string;
+}
+
 type ConsultationTripField = keyof ConsultationTripRow;
 type ConsultationArrestField = keyof ConsultationArrestRow;
+type BinaryAnswer = "yes" | "no" | "unknown" | "";
+type PoliceHelpStage =
+  | "initialNarrative"
+  | "confirmNarrative"
+  | "askReportTaken"
+  | "askNameListed"
+  | "askHasReportCopy"
+  | "askWantsFirmRequest"
+  | "finalConfirmation";
 
 type ChatMode = "chat" | "consultation";
 type ConsultationStep = "idle" | "entries" | "arrests" | "policeHelp" | "complete";
@@ -128,7 +153,16 @@ type BrowserSpeechRecognition = {
   continuous: boolean;
   start: () => void;
   stop: () => void;
-  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onresult:
+    | ((event: {
+        resultIndex: number;
+        results: ArrayLike<{
+          isFinal: boolean;
+          length: number;
+          0?: { transcript: string };
+        }>;
+      }) => void)
+    | null;
   onerror: ((event: { error?: string }) => void) | null;
   onend: (() => void) | null;
 };
@@ -308,6 +342,19 @@ const PREFERRED_FEMININE_VOICE_NAMES = [
   "carmen",
 ];
 
+const ORDINAL_WORDS_ES = [
+  "primera",
+  "segunda",
+  "tercera",
+  "cuarta",
+  "quinta",
+  "sexta",
+  "septima",
+  "octava",
+  "novena",
+  "decima",
+];
+
 function normalizeText(value: string): string {
   return value
     .normalize("NFD")
@@ -397,6 +444,92 @@ function parseConsultationDate(text: string, lang: LangCode): string | null {
   return null;
 }
 
+function parseDurationYears(text: string): { minYears: number; maxYears: number } | null {
+  const normalized = normalizeText(text);
+
+  const rangeMatch = normalized.match(/\b(\d{1,2})\s*(?:o|or|to|a|-)\s*(\d{1,2})\s*(?:anos|ano|años|years|year|ans|an)\b/);
+  if (rangeMatch) {
+    const first = Number(rangeMatch[1]);
+    const second = Number(rangeMatch[2]);
+    return {
+      minYears: Math.min(first, second),
+      maxYears: Math.max(first, second),
+    };
+  }
+
+  const singleMatch = normalized.match(/\b(\d{1,2})\s*(?:anos|ano|años|years|year|ans|an)\b/);
+  if (singleMatch) {
+    const years = Number(singleMatch[1]);
+    return { minYears: years, maxYears: years };
+  }
+
+  return null;
+}
+
+function parseEntryLocation(text: string): string | null {
+  const locationMatch = text.match(
+    /(?:por|via|through|at|en|in)\s+([\p{L}0-9\s.,'-]{3,80}?)(?=(?:\s+(?:y|and|con|with|pero|despues|after|then)\b|[.;]|$))/iu,
+  );
+
+  if (!locationMatch) return null;
+
+  const location = locationMatch[1]
+    .replace(/\s+/g, " ")
+    .replace(/[.,;:\-]+$/g, "")
+    .trim();
+
+  return location.length >= 3 ? location : null;
+}
+
+function inferTripRowFromUtterance(
+  row: ConsultationTripRow,
+  text: string,
+  lang: LangCode,
+): ConsultationTripRow {
+  const inferredDate = parseConsultationDate(text, lang);
+  const inferredLocation = parseEntryLocation(text);
+
+  return {
+    ...row,
+    entryDate: row.entryDate || inferredDate || "",
+    entryLocation: row.entryLocation || inferredLocation || "",
+  };
+}
+
+function inferExitDateFromDuration(
+  entryDate: string,
+  duration: { minYears: number; maxYears: number },
+  lang: LangCode,
+): InferredExitEstimate {
+  const entryYear = Number(entryDate.slice(0, 4));
+  const entryMonth = entryDate.slice(5, 7) || "07";
+  const entryDay = entryDate.slice(8, 10) || "01";
+  const estimatedYear = entryYear + duration.minYears;
+  const maxEstimatedYear = entryYear + duration.maxYears;
+  const inferredExitDate = formatIsoDate(String(estimatedYear), entryMonth, entryDay);
+
+  if (lang === "es") {
+    if (duration.minYears !== duration.maxYears) {
+      return {
+        inferredExitDate,
+        prompt: `Ok, te entiendo. Si entraste en ${entryYear} y estuviste aqui entre ${duration.minYears} y ${duration.maxYears} anos, tu salida aproximada seria alrededor de ${estimatedYear} (quizas hasta ${maxEstimatedYear}). Suena correcto o fue otra fecha?`,
+      };
+    }
+
+    return {
+      inferredExitDate,
+      prompt: `Ok, te entiendo. Si entraste en ${entryYear} y estuviste aqui ${duration.minYears} anos, entonces saliste aproximadamente en ${estimatedYear}. Suena correcto o fue otra fecha?`,
+    };
+  }
+
+  return {
+    inferredExitDate,
+    prompt: `If you entered in ${entryYear} and stayed about ${duration.minYears}${
+      duration.minYears !== duration.maxYears ? `-${duration.maxYears}` : ""
+    } years, your approximate exit would be around ${estimatedYear}. Does that sound right?`,
+  };
+}
+
 function parseValidDocumentsAnswer(text: string, lang: LangCode): ConsultationTripRow["validDocuments"] | null {
   if (UNKNOWN_PATTERNS[lang].test(text)) return "unknown";
   if (YES_PATTERNS[lang].test(text)) return "yes";
@@ -428,6 +561,114 @@ function findNextIncompleteArrestField(
   }
 
   return null;
+}
+
+function isTripRowComplete(row: ConsultationTripRow): boolean {
+  return Boolean(row.entryDate && row.exitDate && row.entryLocation.trim() && row.validDocuments);
+}
+
+function isArrestRowComplete(row: ConsultationArrestRow): boolean {
+  return Boolean(row.arrestDate && row.chargeType.trim() && row.arrestLocation.trim() && row.outcomeSentence.trim());
+}
+
+function normalizeChargeTypeFromSpeech(text: string, lang: LangCode): string {
+  const trimmed = text.trim();
+  const normalized = normalizeText(trimmed);
+
+  if (
+    /\b(dui|dwi|dj|d j|d-j|dei|dji)\b/.test(normalized) ||
+    /manejar\s+bajo\s+la\s+influencia|driving\s+under\s+the\s+influence/.test(normalized)
+  ) {
+    return lang === "es" ? "DUI (manejar bajo la influencia)" : "DUI (driving under the influence)";
+  }
+
+  return trimmed;
+}
+
+function getOrdinalLabel(lang: LangCode, index: number): string {
+  if (lang === "es") {
+    return ORDINAL_WORDS_ES[index] || `${index + 1}`;
+  }
+
+  return String(index + 1);
+}
+
+function getValidDocumentsSummary(lang: LangCode, value: ConsultationTripRow["validDocuments"]): string {
+  if (lang === "es") {
+    if (value === "yes") return "si ingresaste con documentos validos";
+    if (value === "no") return "no ingresaste con documentos validos";
+    return "no estas segura sobre los documentos validos";
+  }
+
+  if (value === "yes") return "you entered with valid documents";
+  if (value === "no") return "you did not enter with valid documents";
+  return "you are not sure about valid documents";
+}
+
+function buildTripReadbackMessage(lang: LangCode, row: ConsultationTripRow, rowIndex: number): string {
+  const ordinal = getOrdinalLabel(lang, rowIndex);
+
+  if (lang === "es") {
+    return `Perfecto, tu ${ordinal} entrada fue el ${row.entryDate}, tu salida fue el ${row.exitDate}, entraste por ${row.entryLocation}, y ${getValidDocumentsSummary(lang, row.validDocuments)}.`;
+  }
+
+  return `Perfect. Trip ${rowIndex + 1}: entry date ${row.entryDate}, exit date ${row.exitDate}, entry location ${row.entryLocation}, and ${getValidDocumentsSummary(lang, row.validDocuments)}.`;
+}
+
+function buildTripTransitionMessage(
+  lang: LangCode,
+  completedRowIndex: number,
+  nextPrompt: { rowIndex: number; field: ConsultationTripField },
+): string {
+  const nextOrdinal = getOrdinalLabel(lang, nextPrompt.rowIndex);
+
+  if (lang === "es") {
+    if (nextPrompt.rowIndex > completedRowIndex) {
+      return `Ahora continuamos con tu ${nextOrdinal} entrada. ${getTripFieldPrompt(lang, nextPrompt.rowIndex, nextPrompt.field)}`;
+    }
+
+    return `Seguimos con tu ${nextOrdinal} entrada. ${getTripFieldPrompt(lang, nextPrompt.rowIndex, nextPrompt.field)}`;
+  }
+
+  return `Now let's continue with trip ${nextPrompt.rowIndex + 1}. ${getTripFieldPrompt(lang, nextPrompt.rowIndex, nextPrompt.field)}`;
+}
+
+function buildArrestChargeReadbackMessage(lang: LangCode, rowIndex: number, chargeType: string): string {
+  const ordinal = getOrdinalLabel(lang, rowIndex);
+
+  if (lang === "es") {
+    return `Perfecto, en tu ${ordinal} incidencia te escuche: ${chargeType}. Si no esta correcto, corrigeme y lo ajusto.`;
+  }
+
+  return `Got it. For incident ${rowIndex + 1}, I captured the charge as: ${chargeType}.`;
+}
+
+function buildArrestReadbackMessage(lang: LangCode, row: ConsultationArrestRow, rowIndex: number): string {
+  const ordinal = getOrdinalLabel(lang, rowIndex);
+
+  if (lang === "es") {
+    return `Perfecto, en tu ${ordinal} incidencia registre: fecha ${row.arrestDate}, cargo ${row.chargeType}, lugar ${row.arrestLocation}, y resultado ${row.outcomeSentence}.`;
+  }
+
+  return `Perfect. Incident ${rowIndex + 1}: date ${row.arrestDate}, charge ${row.chargeType}, location ${row.arrestLocation}, and outcome ${row.outcomeSentence}.`;
+}
+
+function buildArrestTransitionMessage(
+  lang: LangCode,
+  completedRowIndex: number,
+  nextPrompt: { rowIndex: number; field: ConsultationArrestField },
+): string {
+  const nextOrdinal = getOrdinalLabel(lang, nextPrompt.rowIndex);
+
+  if (lang === "es") {
+    if (nextPrompt.rowIndex > completedRowIndex) {
+      return `Ahora continuamos con tu ${nextOrdinal} incidencia. ${getArrestFieldPrompt(lang, nextPrompt.rowIndex, nextPrompt.field)}`;
+    }
+
+    return `Seguimos con tu ${nextOrdinal} incidencia. ${getArrestFieldPrompt(lang, nextPrompt.rowIndex, nextPrompt.field)}`;
+  }
+
+  return `Now let's continue with incident ${nextPrompt.rowIndex + 1}. ${getArrestFieldPrompt(lang, nextPrompt.rowIndex, nextPrompt.field)}`;
 }
 
 function getTripFieldPrompt(lang: LangCode, rowIndex: number, field: ConsultationTripField): string {
@@ -642,12 +883,28 @@ function pickPreferredVoice(voices: SpeechSynthesisVoice[], lang: LangCode): Spe
 }
 
 function extractEntryCount(text: string, lang: LangCode): number | null {
+  const normalized = normalizeText(text);
+
   const numberMatch = text.match(/\b(\d{1,2})\b/);
   if (numberMatch) {
     return Number(numberMatch[1]);
   }
 
-  const normalized = text.toLowerCase();
+  // Handle ordinal-style "first/primera/premiere" phrasing commonly used in voice input.
+  if (
+    /\b(first|1st|primer|primera|primeira|premier|premiere|premiere)\b/.test(normalized)
+  ) {
+    return 1;
+  }
+
+  if (/\b(second|2nd|segundo|segunda|deuxieme|deuxieme|segunda)\b/.test(normalized)) {
+    return 2;
+  }
+
+  if (/\b(third|3rd|tercer|tercera|terceiro|troisieme|troisieme)\b/.test(normalized)) {
+    return 3;
+  }
+
   for (const [word, value] of Object.entries(ENTRY_COUNT_WORDS[lang])) {
     if (normalized.includes(word)) {
       return value;
@@ -673,6 +930,95 @@ function createEmptyArrestRows(count: number): ConsultationArrestRow[] {
     arrestLocation: "",
     outcomeSentence: "",
   }));
+}
+
+function parseBinaryAnswer(text: string, lang: LangCode): BinaryAnswer {
+  if (UNKNOWN_PATTERNS[lang].test(text)) return "unknown";
+  if (YES_PATTERNS[lang].test(text)) return "yes";
+  if (NO_PATTERNS[lang].test(text)) return "no";
+  return "";
+}
+
+function getBinaryAnswerLabel(lang: LangCode, value: BinaryAnswer): string {
+  if (lang === "es") {
+    if (value === "yes") return "Si";
+    if (value === "no") return "No";
+    if (value === "unknown") return "No esta seguro";
+    return "Pendiente";
+  }
+
+  if (value === "yes") return "Yes";
+  if (value === "no") return "No";
+  if (value === "unknown") return "Not sure";
+  return "Pending";
+}
+
+function buildPoliceHelpNarrativeReadback(lang: LangCode, narrative: string): string {
+  if (lang === "es") {
+    return `Entendi esto para su posible U-Visa: ${narrative}`;
+  }
+
+  return `Here is what I understood for your possible U-Visa claim: ${narrative}`;
+}
+
+function buildPoliceHelpFinalSummary(args: {
+  lang: LangCode;
+  narrative: string;
+  reportTaken: BinaryAnswer;
+  nameListed: BinaryAnswer;
+  hasReportCopy: BinaryAnswer;
+  wantsFirmRequest: BinaryAnswer;
+}): string {
+  const {
+    lang,
+    narrative,
+    reportTaken,
+    nameListed,
+    hasReportCopy,
+    wantsFirmRequest,
+  } = args;
+
+  if (lang === "es") {
+    const details = [
+      `Resumen U-Visa para confirmar:`,
+      `1) Lo que usted reporta: ${narrative}`,
+      `2) Se tomo reporte policial: ${getBinaryAnswerLabel(lang, reportTaken)}`,
+      `3) Su nombre aparece en el reporte: ${getBinaryAnswerLabel(lang, nameListed)}`,
+      `4) Tiene copia del reporte: ${getBinaryAnswerLabel(lang, hasReportCopy)}`,
+      `5) Quiere que la firma le ayude a obtener el reporte: ${getBinaryAnswerLabel(lang, wantsFirmRequest)}`,
+    ];
+
+    if (reportTaken === "yes" && nameListed === "yes" && hasReportCopy === "yes") {
+      details.push(
+        `Siguiente paso: por favor envielo a jaimebarron@legal.com o suba una foto del reporte en este chat.`,
+      );
+    } else if (reportTaken === "yes" && nameListed === "yes" && hasReportCopy !== "yes") {
+      if (wantsFirmRequest === "yes") {
+        details.push(`Siguiente paso: perfecto, nuestro equipo legal puede ayudarle a solicitar ese reporte policial.`);
+      } else {
+        details.push(
+          `Siguiente paso: por favor consiga una copia del reporte y luego enviela a jaimebarron@legal.com o suba una foto en este chat.`,
+        );
+      }
+    } else {
+      details.push(`Siguiente paso: un abogado revisara su caso para confirmar la mejor estrategia y elegibilidad para U-Visa.`);
+    }
+
+    details.push("Es correcto todo lo anterior? Responda si o no.");
+    return details.join("\n");
+  }
+
+  const details = [
+    `U-Visa summary for confirmation:`,
+    `1) What you reported: ${narrative}`,
+    `2) Police report was taken: ${getBinaryAnswerLabel(lang, reportTaken)}`,
+    `3) Your name appears on that report: ${getBinaryAnswerLabel(lang, nameListed)}`,
+    `4) You currently have a copy of the report: ${getBinaryAnswerLabel(lang, hasReportCopy)}`,
+    `5) You want our firm to help request that report: ${getBinaryAnswerLabel(lang, wantsFirmRequest)}`,
+    "Is everything above correct? Please answer yes or no.",
+  ];
+
+  return details.join("\n");
 }
 
 const uiCopy: Record<
@@ -1030,6 +1376,14 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
   const [consultationTripRows, setConsultationTripRows] = useState<ConsultationTripRow[]>([]);
   const [consultationArrestCount, setConsultationArrestCount] = useState<number | null>(null);
   const [consultationArrestRows, setConsultationArrestRows] = useState<ConsultationArrestRow[]>([]);
+  const [pendingExitEstimate, setPendingExitEstimate] = useState<PendingExitEstimate | null>(null);
+  const [pendingChargeConfirmation, setPendingChargeConfirmation] = useState<PendingChargeConfirmation | null>(null);
+  const [policeHelpStage, setPoliceHelpStage] = useState<PoliceHelpStage>("initialNarrative");
+  const [policeHelpNarrative, setPoliceHelpNarrative] = useState("");
+  const [policeReportTaken, setPoliceReportTaken] = useState<BinaryAnswer>("");
+  const [policeNameListed, setPoliceNameListed] = useState<BinaryAnswer>("");
+  const [policeReportCopy, setPoliceReportCopy] = useState<BinaryAnswer>("");
+  const [policeWantsFirmRequest, setPoliceWantsFirmRequest] = useState<BinaryAnswer>("");
   const [isListening, setIsListening] = useState(false);
   const [isVoiceInputSupported, setIsVoiceInputSupported] = useState(false);
   const [isSpeechOutputSupported, setIsSpeechOutputSupported] = useState(false);
@@ -1038,6 +1392,8 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const consultationIdRef = useRef(0);
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const voiceFinalTranscriptRef = useRef("");
+  const voiceSubmitTimerRef = useRef<number | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
   const lastSpokenAssistantIdRef = useRef<string | null>(null);
@@ -1179,7 +1535,7 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
   };
 
   useEffect(() => {
-    if (!isOpen || mode !== "chat" || isLoading || !autoSpeakEnabled || typeof window === "undefined") return;
+    if (!isOpen || mode !== "chat" || isLoading || !autoSpeakEnabled || isListening || typeof window === "undefined") return;
 
     const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
     if (!lastAssistant) return;
@@ -1191,10 +1547,10 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
     lastSpokenAssistantIdRef.current = lastAssistant.id;
 
     void playAssistantSpeech(text, lang, "chat");
-  }, [isOpen, mode, messages, isLoading, lang, autoSpeakEnabled]);
+  }, [isOpen, mode, messages, isLoading, lang, autoSpeakEnabled, isListening]);
 
   useEffect(() => {
-    if (!isOpen || mode !== "consultation" || isLoading || !autoSpeakEnabled || typeof window === "undefined") return;
+    if (!isOpen || mode !== "consultation" || isLoading || !autoSpeakEnabled || isListening || typeof window === "undefined") return;
 
     const lastAssistant = [...consultationMessages].reverse().find((message) => message.role === "assistant");
     if (!lastAssistant) return;
@@ -1206,11 +1562,15 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
     lastSpokenConsultationIdRef.current = lastAssistant.id;
 
     void playAssistantSpeech(text, lang, "consultation");
-  }, [isOpen, mode, consultationMessages, isLoading, lang, autoSpeakEnabled]);
+  }, [isOpen, mode, consultationMessages, isLoading, lang, autoSpeakEnabled, isListening]);
 
   useEffect(() => {
     return () => {
       recognitionRef.current?.stop();
+      if (voiceSubmitTimerRef.current !== null && typeof window !== "undefined") {
+        window.clearTimeout(voiceSubmitTimerRef.current);
+        voiceSubmitTimerRef.current = null;
+      }
       stopSpeechOutput();
     };
   }, []);
@@ -1224,6 +1584,15 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
     ]);
   };
 
+  const resetPoliceHelpFlow = () => {
+    setPoliceHelpStage("initialNarrative");
+    setPoliceHelpNarrative("");
+    setPoliceReportTaken("");
+    setPoliceNameListed("");
+    setPoliceReportCopy("");
+    setPoliceWantsFirmRequest("");
+  };
+
   const resetToWelcome = () => {
     setShowWelcome(true);
     setMode("chat");
@@ -1233,6 +1602,9 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
     setConsultationTripRows([]);
     setConsultationArrestCount(null);
     setConsultationArrestRows([]);
+    setPendingExitEstimate(null);
+    setPendingChargeConfirmation(null);
+    resetPoliceHelpFlow();
     setInput("");
   };
 
@@ -1244,6 +1616,9 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
     setConsultationTripRows([]);
     setConsultationArrestCount(null);
     setConsultationArrestRows([]);
+    setPendingExitEstimate(null);
+    setPendingChargeConfirmation(null);
+    resetPoliceHelpFlow();
     setConsultationMessages([
       {
         id: nextConsultationId(),
@@ -1285,8 +1660,232 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
       .join("\n");
 
     pushConsultationMessages({ role: "user", text: summary });
+    resetPoliceHelpFlow();
     pushConsultationMessages({ role: "assistant", text: copy.policeHelpQuestion });
     setConsultationStep("policeHelp");
+  };
+
+  const applyPoliceHelpAnswer = (value: string) => {
+    const normalized = normalizeText(value);
+
+    if (policeHelpStage === "initialNarrative") {
+      const narrative = value.trim();
+      if (!narrative) {
+        pushConsultationMessages({
+          role: "assistant",
+          text:
+            lang === "es"
+              ? "Por favor expliqueme brevemente como ayudo a la policia o a los fiscales."
+              : "Please briefly explain how you helped law enforcement or prosecutors.",
+        });
+        return;
+      }
+
+      setPoliceHelpNarrative(narrative);
+      setPoliceHelpStage("confirmNarrative");
+      pushConsultationMessages({
+        role: "assistant",
+        text:
+          `${buildPoliceHelpNarrativeReadback(lang, narrative)}\n\n` +
+          (lang === "es" ? "Es correcto? Responda si o no." : "Is that correct? Please answer yes or no."),
+      });
+      return;
+    }
+
+    if (policeHelpStage === "confirmNarrative") {
+      if (YES_PATTERNS[lang].test(normalized)) {
+        setPoliceHelpStage("askReportTaken");
+        pushConsultationMessages({
+          role: "assistant",
+          text:
+            lang === "es"
+              ? "Gracias. Primera pregunta clave: se tomo un reporte policial oficial?"
+              : "Thank you. First key detail: was an official police report taken?",
+        });
+        return;
+      }
+
+      if (NO_PATTERNS[lang].test(normalized)) {
+        resetPoliceHelpFlow();
+        setPoliceHelpStage("initialNarrative");
+        pushConsultationMessages({
+          role: "assistant",
+          text:
+            lang === "es"
+              ? "Gracias por corregirme. Por favor expliquelo otra vez brevemente y lo vuelvo a confirmar."
+              : "Thanks for correcting me. Please explain it again briefly and I will confirm it again.",
+        });
+        return;
+      }
+
+      pushConsultationMessages({
+        role: "assistant",
+        text: lang === "es" ? "Solo para confirmar, responda si o no." : "Just to confirm, please answer yes or no.",
+      });
+      return;
+    }
+
+    if (policeHelpStage === "askReportTaken") {
+      const answer = parseBinaryAnswer(value, lang);
+      if (!answer) {
+        pushConsultationMessages({
+          role: "assistant",
+          text:
+            lang === "es"
+              ? "Necesito confirmar: se tomo reporte policial? Responda si, no, o no esta seguro."
+              : "I need to confirm: was a police report taken? Answer yes, no, or not sure.",
+        });
+        return;
+      }
+
+      setPoliceReportTaken(answer);
+      setPoliceHelpStage("askNameListed");
+      pushConsultationMessages({
+        role: "assistant",
+        text:
+          lang === "es"
+            ? "Segunda pregunta clave: su nombre aparece en ese reporte policial?"
+            : "Second key detail: is your name listed on that police report?",
+      });
+      return;
+    }
+
+    if (policeHelpStage === "askNameListed") {
+      const answer = parseBinaryAnswer(value, lang);
+      if (!answer) {
+        pushConsultationMessages({
+          role: "assistant",
+          text:
+            lang === "es"
+              ? "Necesito confirmar: su nombre aparece en el reporte? Responda si, no, o no esta seguro."
+              : "I need to confirm: is your name listed in the report? Answer yes, no, or not sure.",
+        });
+        return;
+      }
+
+      setPoliceNameListed(answer);
+
+      if (policeReportTaken === "yes") {
+        setPoliceHelpStage("askHasReportCopy");
+        pushConsultationMessages({
+          role: "assistant",
+          text:
+            lang === "es"
+              ? "Tiene una copia del reporte policial en este momento?"
+              : "Do you currently have a copy of the police report?",
+        });
+        return;
+      }
+
+      setPoliceReportCopy("unknown");
+      setPoliceHelpStage("askWantsFirmRequest");
+      pushConsultationMessages({
+        role: "assistant",
+        text:
+          lang === "es"
+            ? "Si no tiene ese reporte, quiere que le ayudemos a solicitarlo? Tambien puede obtenerlo usted y compartirlo despues."
+            : "If you do not have the report, would you like us to help request it? You can also obtain it and share it later.",
+      });
+      return;
+    }
+
+    if (policeHelpStage === "askHasReportCopy") {
+      const answer = parseBinaryAnswer(value, lang);
+      if (!answer) {
+        pushConsultationMessages({
+          role: "assistant",
+          text:
+            lang === "es"
+              ? "Tiene copia del reporte ahora? Responda si, no, o no esta seguro."
+              : "Do you have a copy of the report now? Answer yes, no, or not sure.",
+        });
+        return;
+      }
+
+      setPoliceReportCopy(answer);
+      if (answer === "yes") {
+        setPoliceWantsFirmRequest("no");
+        setPoliceHelpStage("finalConfirmation");
+        pushConsultationMessages({
+          role: "assistant",
+          text: buildPoliceHelpFinalSummary({
+            lang,
+            narrative: policeHelpNarrative,
+            reportTaken: policeReportTaken,
+            nameListed: policeNameListed,
+            hasReportCopy: answer,
+            wantsFirmRequest: "no",
+          }),
+        });
+        return;
+      }
+
+      setPoliceHelpStage("askWantsFirmRequest");
+      pushConsultationMessages({
+        role: "assistant",
+        text:
+          lang === "es"
+            ? "Entendido. Quiere que la firma le ayude a obtener ese reporte policial? Si prefiere, tambien puede ir a pedirlo y luego enviarlo."
+            : "Understood. Do you want our firm to help obtain that police report? You can also request it yourself and send it later.",
+      });
+      return;
+    }
+
+    if (policeHelpStage === "askWantsFirmRequest") {
+      const answer = parseBinaryAnswer(value, lang);
+      if (!answer) {
+        pushConsultationMessages({
+          role: "assistant",
+          text:
+            lang === "es"
+              ? "Para confirmar: quiere que la firma le ayude a obtener el reporte? Responda si, no, o no esta seguro."
+              : "To confirm: do you want the firm to help obtain the report? Answer yes, no, or not sure.",
+        });
+        return;
+      }
+
+      setPoliceWantsFirmRequest(answer);
+      setPoliceHelpStage("finalConfirmation");
+      pushConsultationMessages({
+        role: "assistant",
+        text: buildPoliceHelpFinalSummary({
+          lang,
+          narrative: policeHelpNarrative,
+          reportTaken: policeReportTaken,
+          nameListed: policeNameListed,
+          hasReportCopy: policeReportCopy,
+          wantsFirmRequest: answer,
+        }),
+      });
+      return;
+    }
+
+    if (policeHelpStage === "finalConfirmation") {
+      if (YES_PATTERNS[lang].test(normalized)) {
+        const followUp = `${copy.uvNote}\n\n${copy.consultationThanks}`;
+        pushConsultationMessages({ role: "assistant", text: followUp });
+        setConsultationStep("complete");
+        return;
+      }
+
+      if (NO_PATTERNS[lang].test(normalized)) {
+        resetPoliceHelpFlow();
+        setPoliceHelpStage("initialNarrative");
+        pushConsultationMessages({
+          role: "assistant",
+          text:
+            lang === "es"
+              ? "Gracias. Corrijamos todo desde el inicio para verificar bien su reclamo U-Visa. Expliqueme otra vez que paso con la policia."
+              : "Thank you. Let's correct everything from the start so we can verify your U-Visa claim. Please explain again what happened with police.",
+        });
+        return;
+      }
+
+      pushConsultationMessages({
+        role: "assistant",
+        text: lang === "es" ? "Para cerrar, confirme con si o no." : "To finish, please confirm with yes or no.",
+      });
+    }
   };
 
   const applyEntryAnswer = (value: string) => {
@@ -1297,9 +1896,61 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
     }
 
     let parsedValue: string | ConsultationTripRow["validDocuments"] | null = value.trim();
+    const normalizedValue = normalizeText(value);
 
     if (nextMissing.field === "entryDate" || nextMissing.field === "exitDate") {
-      parsedValue = parseConsultationDate(value, lang);
+      if (
+        nextMissing.field === "exitDate" &&
+        pendingExitEstimate &&
+        pendingExitEstimate.rowIndex === nextMissing.rowIndex
+      ) {
+        if (YES_PATTERNS[lang].test(normalizedValue)) {
+          parsedValue = pendingExitEstimate.inferredExitDate;
+          setPendingExitEstimate(null);
+        } else if (NO_PATTERNS[lang].test(normalizedValue)) {
+          setPendingExitEstimate(null);
+          pushConsultationMessages({
+            role: "assistant",
+            text:
+              lang === "es"
+                ? `Viaje ${nextMissing.rowIndex + 1}: perfecto, cual fue la fecha aproximada de salida?`
+                : getTripFieldRetryPrompt(lang, nextMissing.rowIndex, nextMissing.field),
+          });
+          return;
+        } else {
+          parsedValue = parseConsultationDate(value, lang);
+          if (!parsedValue) {
+            pushConsultationMessages({
+              role: "assistant",
+              text:
+                lang === "es"
+                  ? "Solo para confirmar: suena correcta la fecha estimada o prefieres dar otra fecha aproximada?"
+                  : "Does the estimated date sound right, or would you like to provide a different date?",
+            });
+            return;
+          }
+          setPendingExitEstimate(null);
+        }
+      } else {
+        parsedValue = parseConsultationDate(value, lang);
+
+        if (!parsedValue && nextMissing.field === "exitDate") {
+          const duration = parseDurationYears(value);
+          const entryDate = consultationTripRows[nextMissing.rowIndex]?.entryDate;
+
+          if (duration && entryDate) {
+            const inferred = inferExitDateFromDuration(entryDate, duration, lang);
+            const estimate: PendingExitEstimate = {
+              rowIndex: nextMissing.rowIndex,
+              inferredExitDate: inferred.inferredExitDate,
+              prompt: inferred.prompt,
+            };
+            setPendingExitEstimate(estimate);
+            pushConsultationMessages({ role: "assistant", text: estimate.prompt });
+            return;
+          }
+        }
+      }
     } else if (nextMissing.field === "validDocuments") {
       parsedValue = parseValidDocumentsAnswer(value, lang);
     }
@@ -1312,18 +1963,51 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
       return;
     }
 
-    const updatedRows = consultationTripRows.map((row, rowIndex) =>
-      rowIndex === nextMissing.rowIndex
-        ? {
-            ...row,
-            [nextMissing.field]: parsedValue,
-          }
-        : row,
-    );
+    if (nextMissing.field === "exitDate") {
+      setPendingExitEstimate(null);
+    }
+
+    const updatedRows = consultationTripRows.map((row, rowIndex) => {
+      if (rowIndex !== nextMissing.rowIndex) {
+        return row;
+      }
+
+      const baseRow = {
+        ...row,
+        [nextMissing.field]: parsedValue,
+      };
+
+      if (nextMissing.field === "entryDate") {
+        return inferTripRowFromUtterance(baseRow, value, lang);
+      }
+
+      return baseRow;
+    });
 
     setConsultationTripRows(updatedRows);
+    const completedRowIndex = nextMissing.rowIndex;
+    const rowJustCompleted =
+      isTripRowComplete(updatedRows[completedRowIndex]) &&
+      !isTripRowComplete(consultationTripRows[completedRowIndex]);
 
     const nextPrompt = findNextIncompleteTripField(updatedRows);
+
+    if (rowJustCompleted) {
+      const readback = buildTripReadbackMessage(lang, updatedRows[completedRowIndex], completedRowIndex);
+
+      if (!nextPrompt) {
+        pushConsultationMessages({ role: "assistant", text: readback });
+        submitTripRows(updatedRows);
+        return;
+      }
+
+      pushConsultationMessages({
+        role: "assistant",
+        text: `${readback}\n\n${buildTripTransitionMessage(lang, completedRowIndex, nextPrompt)}`,
+      });
+      return;
+    }
+
     if (!nextPrompt) {
       submitTripRows(updatedRows);
       return;
@@ -1346,6 +2030,57 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
 
     if (nextMissing.field === "arrestDate") {
       parsedValue = parseConsultationDate(value, lang);
+    } else if (nextMissing.field === "chargeType") {
+      const normalizedValue = normalizeText(value);
+
+      if (pendingChargeConfirmation && pendingChargeConfirmation.rowIndex === nextMissing.rowIndex) {
+        if (YES_PATTERNS[lang].test(normalizedValue)) {
+          parsedValue = pendingChargeConfirmation.proposedCharge;
+          setPendingChargeConfirmation(null);
+        } else if (NO_PATTERNS[lang].test(normalizedValue)) {
+          setPendingChargeConfirmation(null);
+          pushConsultationMessages({
+            role: "assistant",
+            text:
+              lang === "es"
+                ? `Incidencia ${nextMissing.rowIndex + 1}: entendido, por favor dilo de nuevo con tus palabras para registrarlo bien.`
+                : getArrestFieldRetryPrompt(lang, nextMissing.rowIndex, nextMissing.field),
+          });
+          return;
+        } else {
+          const candidate = normalizeChargeTypeFromSpeech(value, lang);
+          if (candidate) {
+            setPendingChargeConfirmation({
+              rowIndex: nextMissing.rowIndex,
+              proposedCharge: candidate,
+            });
+            pushConsultationMessages({
+              role: "assistant",
+              text:
+                lang === "es"
+                  ? `Solo para confirmar: te escuche "${candidate}". Es correcto?`
+                  : `Just to confirm, I heard "${candidate}". Is that correct?`,
+            });
+            return;
+          }
+        }
+      } else {
+        const candidate = normalizeChargeTypeFromSpeech(value, lang);
+        if (candidate) {
+          setPendingChargeConfirmation({
+            rowIndex: nextMissing.rowIndex,
+            proposedCharge: candidate,
+          });
+          pushConsultationMessages({
+            role: "assistant",
+            text:
+              lang === "es"
+                ? `Solo para confirmar: te escuche "${candidate}". Es correcto?`
+                : `Just to confirm, I heard "${candidate}". Is that correct?`,
+          });
+          return;
+        }
+      }
     }
 
     if (!parsedValue) {
@@ -1366,8 +2101,41 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
     );
 
     setConsultationArrestRows(updatedRows);
+    const completedRowIndex = nextMissing.rowIndex;
+    const rowJustCompleted =
+      isArrestRowComplete(updatedRows[completedRowIndex]) &&
+      !isArrestRowComplete(consultationArrestRows[completedRowIndex]);
 
     const nextPrompt = findNextIncompleteArrestField(updatedRows);
+
+    if (rowJustCompleted) {
+      const readback = buildArrestReadbackMessage(lang, updatedRows[completedRowIndex], completedRowIndex);
+
+      if (!nextPrompt) {
+        pushConsultationMessages({ role: "assistant", text: readback });
+        submitArrestRows(updatedRows);
+        return;
+      }
+
+      pushConsultationMessages({
+        role: "assistant",
+        text: `${readback}\n\n${buildArrestTransitionMessage(lang, completedRowIndex, nextPrompt)}`,
+      });
+      return;
+    }
+
+    if (nextMissing.field === "chargeType") {
+      setPendingChargeConfirmation(null);
+      const chargeReadback = buildArrestChargeReadbackMessage(lang, nextMissing.rowIndex, parsedValue);
+      if (nextPrompt) {
+        pushConsultationMessages({
+          role: "assistant",
+          text: `${chargeReadback}\n\n${getArrestFieldPrompt(lang, nextPrompt.rowIndex, nextPrompt.field)}`,
+        });
+        return;
+      }
+    }
+
     if (!nextPrompt) {
       submitArrestRows(updatedRows);
       return;
@@ -1397,6 +2165,7 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
 
       setConsultationEntryCount(nextEntryCount);
       const nextRows = createEmptyTripRows(nextEntryCount);
+      nextRows[0] = inferTripRowFromUtterance(nextRows[0], value, lang);
       setConsultationTripRows(nextRows);
       const nextPrompt = findNextIncompleteTripField(nextRows);
       pushConsultationMessages({
@@ -1424,6 +2193,7 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
       if (nextArrestCount === 0) {
         setConsultationArrestCount(0);
         setConsultationArrestRows([]);
+        resetPoliceHelpFlow();
         pushConsultationMessages({ role: "assistant", text: copy.policeHelpQuestion });
         setConsultationStep("policeHelp");
         return;
@@ -1443,11 +2213,7 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
     }
 
     if (consultationStep === "policeHelp") {
-      const followUp = YES_PATTERNS[lang].test(value)
-        ? `${copy.uvNote}\n\n${copy.consultationThanks}`
-        : copy.consultationThanks;
-      pushConsultationMessages({ role: "assistant", text: followUp });
-      setConsultationStep("complete");
+      applyPoliceHelpAnswer(value);
     }
   };
 
@@ -1533,6 +2299,11 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
     if (isListening) {
       recognitionRef.current?.stop();
       setIsListening(false);
+      if (voiceSubmitTimerRef.current !== null && typeof window !== "undefined") {
+        window.clearTimeout(voiceSubmitTimerRef.current);
+        voiceSubmitTimerRef.current = null;
+      }
+      voiceFinalTranscriptRef.current = "";
       setVoiceStatus("idle");
       return;
     }
@@ -1547,34 +2318,66 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
     const recognition = new SpeechRecognitionCtor();
     recognitionRef.current = recognition;
     recognition.lang = SPEECH_LANG_BY_UI_LANG[lang];
-    recognition.interimResults = false;
+    recognition.interimResults = true;
     recognition.maxAlternatives = 1;
-    recognition.continuous = false;
+    recognition.continuous = true;
+
+    stopSpeechOutput();
+    voiceFinalTranscriptRef.current = "";
 
     recognition.onresult = (event) => {
       setVoiceStatus("processing");
-      const transcript = Array.from(event.results)
-        .map((result) => result[0]?.transcript ?? "")
-        .join(" ")
-        .trim();
+      let interimTranscript = "";
 
-      if (!transcript) {
-        setVoiceStatus("idle");
-        return;
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        const result = event.results[index];
+        const transcript = result[0]?.transcript?.trim() ?? "";
+        if (!transcript) continue;
+
+        if (result.isFinal) {
+          voiceFinalTranscriptRef.current = `${voiceFinalTranscriptRef.current} ${transcript}`.trim();
+        } else {
+          interimTranscript = `${interimTranscript} ${transcript}`.trim();
+        }
       }
-      setInput(transcript);
-      submitText(transcript);
-      setInput("");
-      setVoiceStatus("idle");
+
+      const displayTranscript = `${voiceFinalTranscriptRef.current} ${interimTranscript}`.trim();
+      if (displayTranscript) {
+        setInput(displayTranscript);
+      }
+
+      if (voiceSubmitTimerRef.current !== null && typeof window !== "undefined") {
+        window.clearTimeout(voiceSubmitTimerRef.current);
+      }
+
+      voiceSubmitTimerRef.current = window.setTimeout(() => {
+        const finalText = voiceFinalTranscriptRef.current.trim();
+        if (finalText) {
+          submitText(finalText);
+          setInput("");
+        }
+        voiceFinalTranscriptRef.current = "";
+        setVoiceStatus("listening");
+      }, 850);
     };
 
     recognition.onerror = (event) => {
       setVoiceStatus(event.error === "not-allowed" ? "permission-denied" : "error");
       setIsListening(false);
+      if (voiceSubmitTimerRef.current !== null && typeof window !== "undefined") {
+        window.clearTimeout(voiceSubmitTimerRef.current);
+        voiceSubmitTimerRef.current = null;
+      }
+      voiceFinalTranscriptRef.current = "";
     };
 
     recognition.onend = () => {
       setIsListening(false);
+      if (voiceSubmitTimerRef.current !== null && typeof window !== "undefined") {
+        window.clearTimeout(voiceSubmitTimerRef.current);
+        voiceSubmitTimerRef.current = null;
+      }
+      voiceFinalTranscriptRef.current = "";
       setVoiceStatus((previous) =>
         previous === "listening" || previous === "processing" ? "idle" : previous,
       );
