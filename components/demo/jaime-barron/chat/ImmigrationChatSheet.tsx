@@ -34,6 +34,9 @@ interface ConsultationArrestRow {
   outcomeSentence: string;
 }
 
+type ConsultationTripField = keyof ConsultationTripRow;
+type ConsultationArrestField = keyof ConsultationArrestRow;
+
 type ChatMode = "chat" | "consultation";
 type ConsultationStep = "idle" | "entries" | "arrests" | "policeHelp" | "complete";
 
@@ -190,6 +193,453 @@ const YES_PATTERNS: Record<LangCode, RegExp> = {
   pt: /\b(sim|claro|ajudei|ajude)\b/i,
   fr: /\b(oui|j'ai aide|aide)\b/i,
 };
+
+const NO_PATTERNS: Record<LangCode, RegExp> = {
+  en: /\b(no|nope|did not|didn't|without)\b/i,
+  es: /\b(no|nunca|sin)\b/i,
+  pt: /\b(nao|não|nunca|sem)\b/i,
+  fr: /\b(non|jamais|sans)\b/i,
+};
+
+const UNKNOWN_PATTERNS: Record<LangCode, RegExp> = {
+  en: /\b(not sure|don't know|dont know|unknown|unsure|maybe)\b/i,
+  es: /\b(no se|no sé|quizas|quizás|tal vez)\b/i,
+  pt: /\b(nao sei|não sei|talvez)\b/i,
+  fr: /\b(je ne sais pas|pas sur|incertain|peut-etre|peut-être)\b/i,
+};
+
+const MONTHS_BY_TOKEN: Record<string, string> = {
+  january: "01",
+  jan: "01",
+  febrero: "02",
+  february: "02",
+  feb: "02",
+  fevrier: "02",
+  fevr: "02",
+  février: "02",
+  fev: "02",
+  fevereiro: "02",
+  march: "03",
+  mar: "03",
+  marzo: "03",
+  mars: "03",
+  abril: "04",
+  april: "04",
+  avr: "04",
+  avril: "04",
+  abr: "04",
+  may: "05",
+  mayo: "05",
+  mai: "05",
+  maio: "05",
+  june: "06",
+  jun: "06",
+  junio: "06",
+  juin: "06",
+  junho: "06",
+  july: "07",
+  jul: "07",
+  julio: "07",
+  juillet: "07",
+  julho: "07",
+  august: "08",
+  aug: "08",
+  agosto: "08",
+  aout: "08",
+  août: "08",
+  setembro: "09",
+  septiembre: "09",
+  september: "09",
+  sep: "09",
+  sept: "09",
+  septembre: "09",
+  october: "10",
+  oct: "10",
+  octubre: "10",
+  octobre: "10",
+  outubro: "10",
+  november: "11",
+  nov: "11",
+  noviembre: "11",
+  novembre: "11",
+  dezembro: "12",
+  diciembre: "12",
+  december: "12",
+  dec: "12",
+  decembre: "12",
+  décembre: "12",
+  dezembro: "12",
+};
+
+const SEASONS_BY_TOKEN: Record<string, string> = {
+  spring: "04",
+  primavera: "04",
+  summer: "07",
+  verano: "07",
+  ete: "07",
+  eté: "07",
+  ete: "07",
+  verano: "07",
+  verao: "07",
+  verão: "07",
+  fall: "10",
+  autumn: "10",
+  otoño: "10",
+  otono: "10",
+  automne: "10",
+  outono: "10",
+  winter: "01",
+  invierno: "01",
+  hiver: "01",
+  inverno: "01",
+};
+
+const PREFERRED_FEMININE_VOICE_NAMES = [
+  "monica",
+  "paulina",
+  "sabina",
+  "helena",
+  "maria",
+  "paloma",
+  "soledad",
+  "lucia",
+  "luciana",
+  "elvira",
+  "carmen",
+];
+
+function normalizeText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/(\d)(st|nd|rd|th)\b/g, "$1")
+    .toLowerCase()
+    .replace(/,/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function formatIsoDate(year: string, month: string, day: string): string {
+  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+}
+
+function parseConsultationDate(text: string, lang: LangCode): string | null {
+  const normalized = normalizeText(text);
+  const yearMatch = normalized.match(/\b(19|20)\d{2}\b/);
+
+  const monthYearMatch = normalized.match(/\b(?:around|about|circa|aproximadamente|aprox|cerca de|vers|environ)?\s*([a-z]+)\s+(\d{4})\b/);
+  if (monthYearMatch) {
+    const month = MONTHS_BY_TOKEN[monthYearMatch[1]];
+    if (month) {
+      return formatIsoDate(monthYearMatch[2], month, "15");
+    }
+  }
+
+  const seasonYearMatch = normalized.match(/\b([a-z]+)\s+(?:of\s+|de\s+|du\s+)?(\d{4})\b/);
+  if (seasonYearMatch) {
+    const month = SEASONS_BY_TOKEN[seasonYearMatch[1]];
+    if (month) {
+      return formatIsoDate(seasonYearMatch[2], month, "15");
+    }
+  }
+
+  const isoMatch = normalized.match(/\b(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})\b/);
+  if (isoMatch) {
+    return formatIsoDate(isoMatch[1], isoMatch[2], isoMatch[3]);
+  }
+
+  const numericMatch = normalized.match(/\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b/);
+  if (numericMatch) {
+    const first = numericMatch[1];
+    const second = numericMatch[2];
+    const rawYear = numericMatch[3];
+    const year = rawYear.length === 2 ? `20${rawYear}` : rawYear;
+    const month = lang === "en" ? first : second;
+    const day = lang === "en" ? second : first;
+    return formatIsoDate(year, month, day);
+  }
+
+  const monthDayYearMatch = normalized.match(/\b([a-z]+)\s+(\d{1,2})\s+(\d{4})\b/);
+  if (monthDayYearMatch) {
+    const month = MONTHS_BY_TOKEN[monthDayYearMatch[1]];
+    if (month) {
+      return formatIsoDate(monthDayYearMatch[3], month, monthDayYearMatch[2]);
+    }
+  }
+
+  const dayMonthYearMatch = normalized.match(/\b(\d{1,2})\s+([a-z]+)\s+(\d{4})\b/);
+  if (dayMonthYearMatch) {
+    const month = MONTHS_BY_TOKEN[dayMonthYearMatch[2]];
+    if (month) {
+      return formatIsoDate(dayMonthYearMatch[3], month, dayMonthYearMatch[1]);
+    }
+  }
+
+  if (yearMatch) {
+    const year = yearMatch[0];
+
+    for (const [token, month] of Object.entries(MONTHS_BY_TOKEN)) {
+      if (normalized.includes(token)) {
+        return formatIsoDate(year, month, "15");
+      }
+    }
+
+    for (const [token, month] of Object.entries(SEASONS_BY_TOKEN)) {
+      if (normalized.includes(token)) {
+        return formatIsoDate(year, month, "15");
+      }
+    }
+
+    // Last-resort estimate when only year is known.
+    return formatIsoDate(year, "07", "01");
+  }
+
+  return null;
+}
+
+function parseValidDocumentsAnswer(text: string, lang: LangCode): ConsultationTripRow["validDocuments"] | null {
+  if (UNKNOWN_PATTERNS[lang].test(text)) return "unknown";
+  if (YES_PATTERNS[lang].test(text)) return "yes";
+  if (NO_PATTERNS[lang].test(text)) return "no";
+  return null;
+}
+
+function findNextIncompleteTripField(
+  rows: ConsultationTripRow[],
+): { rowIndex: number; field: ConsultationTripField } | null {
+  for (const [rowIndex, row] of rows.entries()) {
+    if (!row.entryDate) return { rowIndex, field: "entryDate" };
+    if (!row.exitDate) return { rowIndex, field: "exitDate" };
+    if (!row.entryLocation.trim()) return { rowIndex, field: "entryLocation" };
+    if (!row.validDocuments) return { rowIndex, field: "validDocuments" };
+  }
+
+  return null;
+}
+
+function findNextIncompleteArrestField(
+  rows: ConsultationArrestRow[],
+): { rowIndex: number; field: ConsultationArrestField } | null {
+  for (const [rowIndex, row] of rows.entries()) {
+    if (!row.arrestDate) return { rowIndex, field: "arrestDate" };
+    if (!row.chargeType.trim()) return { rowIndex, field: "chargeType" };
+    if (!row.arrestLocation.trim()) return { rowIndex, field: "arrestLocation" };
+    if (!row.outcomeSentence.trim()) return { rowIndex, field: "outcomeSentence" };
+  }
+
+  return null;
+}
+
+function getTripFieldPrompt(lang: LangCode, rowIndex: number, field: ConsultationTripField): string {
+  const tripNumber = rowIndex + 1;
+
+  if (lang === "es") {
+    if (field === "entryDate") return `Viaje ${tripNumber}: cual fue la fecha de entrada?`;
+    if (field === "exitDate") return `Viaje ${tripNumber}: cual fue la fecha de salida?`;
+    if (field === "entryLocation") return `Viaje ${tripNumber}: por donde entro a Estados Unidos?`;
+    return `Viaje ${tripNumber}: entro con documentos validos? Responda si, no, o no se.`;
+  }
+
+  if (lang === "pt") {
+    if (field === "entryDate") return `Viagem ${tripNumber}: qual foi a data de entrada?`;
+    if (field === "exitDate") return `Viagem ${tripNumber}: qual foi a data de saida?`;
+    if (field === "entryLocation") return `Viagem ${tripNumber}: por onde voce entrou nos Estados Unidos?`;
+    return `Viagem ${tripNumber}: voce entrou com documentos validos? Responda sim, nao, ou nao sei.`;
+  }
+
+  if (lang === "fr") {
+    if (field === "entryDate") return `Voyage ${tripNumber} : quelle etait la date d'entree ?`;
+    if (field === "exitDate") return `Voyage ${tripNumber} : quelle etait la date de sortie ?`;
+    if (field === "entryLocation") return `Voyage ${tripNumber} : par ou etes-vous entre aux Etats-Unis ?`;
+    return `Voyage ${tripNumber} : etiez-vous entre avec des documents valides ? Repondez oui, non ou je ne sais pas.`;
+  }
+
+  if (field === "entryDate") return `Trip ${tripNumber}: what was the entry date?`;
+  if (field === "exitDate") return `Trip ${tripNumber}: what was the exit date?`;
+  if (field === "entryLocation") return `Trip ${tripNumber}: where did you enter the United States?`;
+  return `Trip ${tripNumber}: did you enter with valid documents? Reply yes, no, or not sure.`;
+}
+
+function getTripFieldRetryPrompt(lang: LangCode, rowIndex: number, field: ConsultationTripField): string {
+  const tripNumber = rowIndex + 1;
+
+  if (lang === "es") {
+    if (field === "entryDate" || field === "exitDate") return `Viaje ${tripNumber}: esta bien una fecha aproximada, por ejemplo "junio 2018" o "en 2019".`;
+    if (field === "entryLocation") return `Viaje ${tripNumber}: por favor diga la ciudad, puerto o cruce fronterizo por donde entro.`;
+    return `Viaje ${tripNumber}: responda si, no, o no se sobre los documentos validos.`;
+  }
+
+  if (lang === "pt") {
+    if (field === "entryDate" || field === "exitDate") return `Viagem ${tripNumber}: uma data aproximada funciona, como "junho de 2018" ou "em 2019".`;
+    if (field === "entryLocation") return `Viagem ${tripNumber}: diga a cidade, porto ou fronteira por onde entrou.`;
+    return `Viagem ${tripNumber}: responda sim, nao, ou nao sei sobre os documentos validos.`;
+  }
+
+  if (lang === "fr") {
+    if (field === "entryDate" || field === "exitDate") return `Voyage ${tripNumber} : une date approximative convient, par exemple "juin 2018" ou "en 2019".`;
+    if (field === "entryLocation") return `Voyage ${tripNumber} : indiquez la ville, le port ou le poste-frontiere d'entree.`;
+    return `Voyage ${tripNumber} : repondez oui, non ou je ne sais pas pour les documents valides.`;
+  }
+
+  if (field === "entryDate" || field === "exitDate") return `Trip ${tripNumber}: an approximate date is fine, like "June 2018" or "in 2019".`;
+  if (field === "entryLocation") return `Trip ${tripNumber}: please say the city, port, or border crossing where you entered.`;
+  return `Trip ${tripNumber}: please reply yes, no, or not sure about valid documents.`;
+}
+
+function getArrestFieldPrompt(lang: LangCode, rowIndex: number, field: ConsultationArrestField): string {
+  const incidentNumber = rowIndex + 1;
+
+  if (lang === "es") {
+    if (field === "arrestDate") return `Incidencia ${incidentNumber}: cual fue la fecha del arresto?`;
+    if (field === "chargeType") return `Incidencia ${incidentNumber}: cual fue el tipo de cargo o delito?`;
+    if (field === "arrestLocation") return `Incidencia ${incidentNumber}: en que ciudad y estado ocurrio?`;
+    return `Incidencia ${incidentNumber}: cual fue la sentencia final o el resultado?`;
+  }
+
+  if (lang === "pt") {
+    if (field === "arrestDate") return `Incidente ${incidentNumber}: qual foi a data da prisao?`;
+    if (field === "chargeType") return `Incidente ${incidentNumber}: qual foi o tipo de acusacao?`;
+    if (field === "arrestLocation") return `Incidente ${incidentNumber}: em que cidade e estado aconteceu?`;
+    return `Incidente ${incidentNumber}: qual foi a sentenca final ou o resultado?`;
+  }
+
+  if (lang === "fr") {
+    if (field === "arrestDate") return `Incident ${incidentNumber} : quelle etait la date de l'arrestation ?`;
+    if (field === "chargeType") return `Incident ${incidentNumber} : quel etait le type d'infraction ?`;
+    if (field === "arrestLocation") return `Incident ${incidentNumber} : dans quelle ville et quel etat cela s'est-il produit ?`;
+    return `Incident ${incidentNumber} : quelle a ete la peine finale ou le resultat ?`;
+  }
+
+  if (field === "arrestDate") return `Incident ${incidentNumber}: what was the arrest date?`;
+  if (field === "chargeType") return `Incident ${incidentNumber}: what was the charge or offense?`;
+  if (field === "arrestLocation") return `Incident ${incidentNumber}: what city and state did it happen in?`;
+  return `Incident ${incidentNumber}: what was the final sentence or outcome?`;
+}
+
+function getArrestFieldRetryPrompt(lang: LangCode, rowIndex: number, field: ConsultationArrestField): string {
+  const incidentNumber = rowIndex + 1;
+
+  if (lang === "es") {
+    if (field === "arrestDate") return `Incidencia ${incidentNumber}: una fecha aproximada esta bien, por ejemplo "junio 2018" o "en 2019".`;
+    if (field === "chargeType") return `Incidencia ${incidentNumber}: por favor diga el cargo o delito principal.`;
+    if (field === "arrestLocation") return `Incidencia ${incidentNumber}: por favor diga la ciudad y el estado.`;
+    return `Incidencia ${incidentNumber}: por favor diga la sentencia final o el resultado del caso.`;
+  }
+
+  if (lang === "pt") {
+    if (field === "arrestDate") return `Incidente ${incidentNumber}: uma data aproximada funciona, como "junho de 2018" ou "em 2019".`;
+    if (field === "chargeType") return `Incidente ${incidentNumber}: diga a acusacao principal.`;
+    if (field === "arrestLocation") return `Incidente ${incidentNumber}: diga a cidade e o estado.`;
+    return `Incidente ${incidentNumber}: diga a sentenca final ou o resultado.`;
+  }
+
+  if (lang === "fr") {
+    if (field === "arrestDate") return `Incident ${incidentNumber} : une date approximative convient, par exemple "juin 2018" ou "en 2019".`;
+    if (field === "chargeType") return `Incident ${incidentNumber} : indiquez l'infraction principale.`;
+    if (field === "arrestLocation") return `Incident ${incidentNumber} : indiquez la ville et l'etat.`;
+    return `Incident ${incidentNumber} : indiquez la peine finale ou le resultat.`;
+  }
+
+  if (field === "arrestDate") return `Incident ${incidentNumber}: an approximate date is fine, like "June 2018" or "in 2019".`;
+  if (field === "chargeType") return `Incident ${incidentNumber}: please say the main charge or offense.`;
+  if (field === "arrestLocation") return `Incident ${incidentNumber}: please say the city and state.`;
+  return `Incident ${incidentNumber}: please describe the final sentence or outcome.`;
+}
+
+function getCurrentCollectionLabel(
+  lang: LangCode,
+  section: "entries" | "arrests",
+  rowIndex: number,
+  field: ConsultationTripField | ConsultationArrestField,
+): string {
+  const itemNumber = rowIndex + 1;
+
+  if (lang === "es") {
+    const labels =
+      section === "entries"
+        ? {
+            entryDate: "fecha de entrada",
+            exitDate: "fecha de salida",
+            entryLocation: "lugar de entrada",
+            validDocuments: "documentos validos",
+          }
+        : {
+            arrestDate: "fecha del arresto",
+            chargeType: "tipo de cargo",
+            arrestLocation: "ciudad y estado",
+            outcomeSentence: "sentencia o resultado",
+          };
+    return `${section === "entries" ? "Llenando viaje" : "Llenando incidencia"} ${itemNumber}: ${labels[field as keyof typeof labels]}`;
+  }
+
+  if (lang === "pt") {
+    const labels =
+      section === "entries"
+        ? {
+            entryDate: "data de entrada",
+            exitDate: "data de saida",
+            entryLocation: "local de entrada",
+            validDocuments: "documentos validos",
+          }
+        : {
+            arrestDate: "data da prisao",
+            chargeType: "tipo de acusacao",
+            arrestLocation: "cidade e estado",
+            outcomeSentence: "sentenca ou resultado",
+          };
+    return `${section === "entries" ? "Preenchendo viagem" : "Preenchendo incidente"} ${itemNumber}: ${labels[field as keyof typeof labels]}`;
+  }
+
+  if (lang === "fr") {
+    const labels =
+      section === "entries"
+        ? {
+            entryDate: "date d'entree",
+            exitDate: "date de sortie",
+            entryLocation: "lieu d'entree",
+            validDocuments: "documents valides",
+          }
+        : {
+            arrestDate: "date d'arrestation",
+            chargeType: "type d'infraction",
+            arrestLocation: "ville et etat",
+            outcomeSentence: "peine ou resultat",
+          };
+    return `${section === "entries" ? "Remplissage du voyage" : "Remplissage de l'incident"} ${itemNumber} : ${labels[field as keyof typeof labels]}`;
+  }
+
+  const labels =
+    section === "entries"
+      ? {
+          entryDate: "entry date",
+          exitDate: "exit date",
+          entryLocation: "entry location",
+          validDocuments: "valid documents",
+        }
+      : {
+          arrestDate: "arrest date",
+          chargeType: "charge type",
+          arrestLocation: "city and state",
+          outcomeSentence: "sentence or outcome",
+        };
+  return `Currently filling ${section === "entries" ? "trip" : "incident"} ${itemNumber}: ${labels[field as keyof typeof labels]}`;
+}
+
+function pickPreferredVoice(voices: SpeechSynthesisVoice[], lang: LangCode): SpeechSynthesisVoice | undefined {
+  const prefix = SPEECH_LANG_BY_UI_LANG[lang].slice(0, 2).toLowerCase();
+  const candidates = voices.filter((voice) => voice.lang.toLowerCase().startsWith(prefix));
+  if (candidates.length === 0) return undefined;
+
+  if (lang === "es") {
+    const preferred = candidates.find((voice) => {
+      const normalizedName = normalizeText(voice.name);
+      return PREFERRED_FEMININE_VOICE_NAMES.some((token) => normalizedName.includes(token));
+    });
+    if (preferred) return preferred;
+  }
+
+  return candidates[0];
+}
 
 function extractEntryCount(text: string, lang: LangCode): number | null {
   const numberMatch = text.match(/\b(\d{1,2})\b/);
@@ -571,7 +1021,7 @@ const uiCopy: Record<
 
 export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetProps) {
   const [input, setInput] = useState("");
-  const [lang, setLang] = useState<LangCode>("en");
+  const [lang, setLang] = useState<LangCode>("es");
   const [showWelcome, setShowWelcome] = useState(true);
   const [mode, setMode] = useState<ChatMode>("chat");
   const [consultationStep, setConsultationStep] = useState<ConsultationStep>("idle");
@@ -588,7 +1038,10 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const consultationIdRef = useRef(0);
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
   const lastSpokenAssistantIdRef = useRef<string | null>(null);
+  const lastSpokenConsultationIdRef = useRef<string | null>(null);
   const copy = uiCopy[lang];
   const isConsultationMode = mode === "consultation";
   const isEntryTableActive = isConsultationMode && consultationStep === "entries" && consultationEntryCount !== null;
@@ -604,9 +1057,9 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
   const isLoading = status === "streaming" || status === "submitted";
   const isInputLocked =
     isLoading ||
-    isEntryTableActive ||
-    isArrestsTableActive ||
     (isConsultationMode && consultationStep === "complete");
+  const nextIncompleteTripField = findNextIncompleteTripField(consultationTripRows);
+  const nextIncompleteArrestField = findNextIncompleteArrestField(consultationArrestRows);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -622,7 +1075,7 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
 
     const SpeechRecognitionCtor = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
     setIsVoiceInputSupported(Boolean(SpeechRecognitionCtor));
-    setIsSpeechOutputSupported("speechSynthesis" in window);
+    setIsSpeechOutputSupported("speechSynthesis" in window || typeof Audio !== "undefined");
     setVoiceStatus(SpeechRecognitionCtor ? "idle" : "unsupported");
 
     const persistedAutoSpeak = window.localStorage.getItem(AUTO_SPEAK_STORAGE_KEY);
@@ -638,6 +1091,93 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
     window.localStorage.setItem(AUTO_SPEAK_STORAGE_KEY, String(autoSpeakEnabled));
   }, [autoSpeakEnabled]);
 
+  const stopSpeechOutput = () => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = "";
+      audioRef.current = null;
+    }
+
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+    }
+  };
+
+  const speakWithBrowser = (text: string, targetLang: LangCode, context: ChatMode) => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    const speechLang = targetLang === "es" ? "es-MX" : SPEECH_LANG_BY_UI_LANG[targetLang];
+    utterance.lang = speechLang;
+    utterance.rate = context === "consultation" ? 0.93 : 0.96;
+    utterance.pitch = targetLang === "es" ? (context === "consultation" ? 1.12 : 1.08) : 1;
+
+    const matchedVoice = pickPreferredVoice(window.speechSynthesis.getVoices(), targetLang);
+    if (matchedVoice) {
+      utterance.voice = matchedVoice;
+    }
+
+    stopSpeechOutput();
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const speakWithElevenLabs = async (text: string, targetLang: LangCode, context: ChatMode) => {
+    if (typeof window === "undefined") return false;
+
+    try {
+      const response = await fetch("/api/voice/elevenlabs", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text,
+          lang: targetLang,
+          context,
+        }),
+      });
+
+      if (!response.ok) return false;
+
+      const blob = await response.blob();
+      if (!blob.size) return false;
+
+      stopSpeechOutput();
+
+      const audioUrl = URL.createObjectURL(blob);
+      audioUrlRef.current = audioUrl;
+
+      const audio = new Audio(audioUrl);
+      audioRef.current = audio;
+      audio.onended = () => {
+        if (audioUrlRef.current === audioUrl) {
+          URL.revokeObjectURL(audioUrl);
+          audioUrlRef.current = null;
+        }
+        if (audioRef.current === audio) {
+          audioRef.current = null;
+        }
+      };
+
+      await audio.play();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const playAssistantSpeech = async (text: string, targetLang: LangCode, context: ChatMode) => {
+    const usedElevenLabs = await speakWithElevenLabs(text, targetLang, context);
+    if (!usedElevenLabs) {
+      speakWithBrowser(text, targetLang, context);
+    }
+  };
+
   useEffect(() => {
     if (!isOpen || mode !== "chat" || isLoading || !autoSpeakEnabled || typeof window === "undefined") return;
 
@@ -650,28 +1190,28 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
 
     lastSpokenAssistantIdRef.current = lastAssistant.id;
 
-    if (!("speechSynthesis" in window)) return;
-
-    const utterance = new SpeechSynthesisUtterance(text);
-    const speechLang = SPEECH_LANG_BY_UI_LANG[lang];
-    utterance.lang = speechLang;
-
-    const voices = window.speechSynthesis.getVoices();
-    const matchedVoice = voices.find((voice) => voice.lang.toLowerCase().startsWith(speechLang.slice(0, 2).toLowerCase()));
-    if (matchedVoice) {
-      utterance.voice = matchedVoice;
-    }
-
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
+    void playAssistantSpeech(text, lang, "chat");
   }, [isOpen, mode, messages, isLoading, lang, autoSpeakEnabled]);
+
+  useEffect(() => {
+    if (!isOpen || mode !== "consultation" || isLoading || !autoSpeakEnabled || typeof window === "undefined") return;
+
+    const lastAssistant = [...consultationMessages].reverse().find((message) => message.role === "assistant");
+    if (!lastAssistant) return;
+    if (lastSpokenConsultationIdRef.current === lastAssistant.id) return;
+
+    const text = lastAssistant.text.trim();
+    if (!text) return;
+
+    lastSpokenConsultationIdRef.current = lastAssistant.id;
+
+    void playAssistantSpeech(text, lang, "consultation");
+  }, [isOpen, mode, consultationMessages, isLoading, lang, autoSpeakEnabled]);
 
   useEffect(() => {
     return () => {
       recognitionRef.current?.stop();
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-      }
+      stopSpeechOutput();
     };
   }, []);
 
@@ -714,10 +1254,140 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
     setInput("");
   };
 
+  const submitTripRows = (rows: ConsultationTripRow[]) => {
+    const documentsLabels = copy.validDocumentsOptions;
+    const summary = rows
+      .map((row, index) => {
+        const documentsLabel =
+          row.validDocuments === "yes"
+            ? documentsLabels.yes
+            : row.validDocuments === "no"
+              ? documentsLabels.no
+              : documentsLabels.unknown;
+
+        return `${copy.tripLabel} ${index + 1}: ${copy.entryDateLabel} ${row.entryDate}, ${copy.exitDateLabel} ${row.exitDate}, ${copy.entryLocationLabel} ${row.entryLocation}, ${copy.validDocumentsLabel} ${documentsLabel}`;
+      })
+      .join("\n");
+
+    pushConsultationMessages({ role: "user", text: summary });
+    setConsultationArrestCount(null);
+    setConsultationArrestRows([]);
+    pushConsultationMessages({ role: "assistant", text: copy.arrestsQuestion });
+    setConsultationStep("arrests");
+  };
+
+  const submitArrestRows = (rows: ConsultationArrestRow[]) => {
+    const summary = rows
+      .map(
+        (row, index) =>
+          `${copy.incidentLabel} ${index + 1}: ${copy.arrestDateLabel} ${row.arrestDate}, ${copy.chargeTypeLabel} ${row.chargeType}, ${copy.arrestLocationLabel} ${row.arrestLocation}, ${copy.outcomeLabel} ${row.outcomeSentence}`,
+      )
+      .join("\n");
+
+    pushConsultationMessages({ role: "user", text: summary });
+    pushConsultationMessages({ role: "assistant", text: copy.policeHelpQuestion });
+    setConsultationStep("policeHelp");
+  };
+
+  const applyEntryAnswer = (value: string) => {
+    const nextMissing = findNextIncompleteTripField(consultationTripRows);
+    if (!nextMissing) {
+      submitTripRows(consultationTripRows);
+      return;
+    }
+
+    let parsedValue: string | ConsultationTripRow["validDocuments"] | null = value.trim();
+
+    if (nextMissing.field === "entryDate" || nextMissing.field === "exitDate") {
+      parsedValue = parseConsultationDate(value, lang);
+    } else if (nextMissing.field === "validDocuments") {
+      parsedValue = parseValidDocumentsAnswer(value, lang);
+    }
+
+    if (!parsedValue) {
+      pushConsultationMessages({
+        role: "assistant",
+        text: getTripFieldRetryPrompt(lang, nextMissing.rowIndex, nextMissing.field),
+      });
+      return;
+    }
+
+    const updatedRows = consultationTripRows.map((row, rowIndex) =>
+      rowIndex === nextMissing.rowIndex
+        ? {
+            ...row,
+            [nextMissing.field]: parsedValue,
+          }
+        : row,
+    );
+
+    setConsultationTripRows(updatedRows);
+
+    const nextPrompt = findNextIncompleteTripField(updatedRows);
+    if (!nextPrompt) {
+      submitTripRows(updatedRows);
+      return;
+    }
+
+    pushConsultationMessages({
+      role: "assistant",
+      text: getTripFieldPrompt(lang, nextPrompt.rowIndex, nextPrompt.field),
+    });
+  };
+
+  const applyArrestAnswer = (value: string) => {
+    const nextMissing = findNextIncompleteArrestField(consultationArrestRows);
+    if (!nextMissing) {
+      submitArrestRows(consultationArrestRows);
+      return;
+    }
+
+    let parsedValue: string | null = value.trim();
+
+    if (nextMissing.field === "arrestDate") {
+      parsedValue = parseConsultationDate(value, lang);
+    }
+
+    if (!parsedValue) {
+      pushConsultationMessages({
+        role: "assistant",
+        text: getArrestFieldRetryPrompt(lang, nextMissing.rowIndex, nextMissing.field),
+      });
+      return;
+    }
+
+    const updatedRows = consultationArrestRows.map((row, rowIndex) =>
+      rowIndex === nextMissing.rowIndex
+        ? {
+            ...row,
+            [nextMissing.field]: parsedValue,
+          }
+        : row,
+    );
+
+    setConsultationArrestRows(updatedRows);
+
+    const nextPrompt = findNextIncompleteArrestField(updatedRows);
+    if (!nextPrompt) {
+      submitArrestRows(updatedRows);
+      return;
+    }
+
+    pushConsultationMessages({
+      role: "assistant",
+      text: getArrestFieldPrompt(lang, nextPrompt.rowIndex, nextPrompt.field),
+    });
+  };
+
   const completeConsultationStep = (value: string) => {
     pushConsultationMessages({ role: "user", text: value });
 
     if (consultationStep === "entries") {
+      if (consultationEntryCount !== null) {
+        applyEntryAnswer(value);
+        return;
+      }
+
       const nextEntryCount = extractEntryCount(value, lang);
 
       if (nextEntryCount === null) {
@@ -726,15 +1396,24 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
       }
 
       setConsultationEntryCount(nextEntryCount);
-      setConsultationTripRows(createEmptyTripRows(nextEntryCount));
+      const nextRows = createEmptyTripRows(nextEntryCount);
+      setConsultationTripRows(nextRows);
+      const nextPrompt = findNextIncompleteTripField(nextRows);
       pushConsultationMessages({
         role: "assistant",
-        text: copy.entriesTableIntro.replace("{count}", String(nextEntryCount)),
+        text: `${copy.entriesTableIntro.replace("{count}", String(nextEntryCount))}\n\n${
+          nextPrompt ? getTripFieldPrompt(lang, nextPrompt.rowIndex, nextPrompt.field) : ""
+        }`,
       });
       return;
     }
 
     if (consultationStep === "arrests") {
+      if (consultationArrestCount !== null && consultationArrestCount > 0) {
+        applyArrestAnswer(value);
+        return;
+      }
+
       const nextArrestCount = extractEntryCount(value, lang);
 
       if (nextArrestCount === null) {
@@ -751,10 +1430,14 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
       }
 
       setConsultationArrestCount(nextArrestCount);
-      setConsultationArrestRows(createEmptyArrestRows(nextArrestCount));
+      const nextRows = createEmptyArrestRows(nextArrestCount);
+      setConsultationArrestRows(nextRows);
+      const nextPrompt = findNextIncompleteArrestField(nextRows);
       pushConsultationMessages({
         role: "assistant",
-        text: copy.arrestsTableIntro.replace("{count}", String(nextArrestCount)),
+        text: `${copy.arrestsTableIntro.replace("{count}", String(nextArrestCount))}\n\n${
+          nextPrompt ? getArrestFieldPrompt(lang, nextPrompt.rowIndex, nextPrompt.field) : ""
+        }`,
       });
       return;
     }
@@ -793,26 +1476,7 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
 
   const submitTripTable = () => {
     if (!isTripTableComplete) return;
-
-    const documentsLabels = copy.validDocumentsOptions;
-    const summary = consultationTripRows
-      .map((row, index) => {
-        const documentsLabel =
-          row.validDocuments === "yes"
-            ? documentsLabels.yes
-            : row.validDocuments === "no"
-              ? documentsLabels.no
-              : documentsLabels.unknown;
-
-        return `${copy.tripLabel} ${index + 1}: ${copy.entryDateLabel} ${row.entryDate}, ${copy.exitDateLabel} ${row.exitDate}, ${copy.entryLocationLabel} ${row.entryLocation}, ${copy.validDocumentsLabel} ${documentsLabel}`;
-      })
-      .join("\n");
-
-    pushConsultationMessages({ role: "user", text: summary });
-    setConsultationArrestCount(null);
-    setConsultationArrestRows([]);
-    pushConsultationMessages({ role: "assistant", text: copy.arrestsQuestion });
-    setConsultationStep("arrests");
+    submitTripRows(consultationTripRows);
   };
 
   const updateArrestRow = (
@@ -840,17 +1504,7 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
 
   const submitArrestTable = () => {
     if (!isArrestTableComplete) return;
-
-    const summary = consultationArrestRows
-      .map(
-        (row, index) =>
-          `${copy.incidentLabel} ${index + 1}: ${copy.arrestDateLabel} ${row.arrestDate}, ${copy.chargeTypeLabel} ${row.chargeType}, ${copy.arrestLocationLabel} ${row.arrestLocation}, ${copy.outcomeLabel} ${row.outcomeSentence}`,
-      )
-      .join("\n");
-
-    pushConsultationMessages({ role: "user", text: summary });
-    pushConsultationMessages({ role: "assistant", text: copy.policeHelpQuestion });
-    setConsultationStep("policeHelp");
+    submitArrestRows(consultationArrestRows);
   };
 
   const submitText = (text: string) => {
@@ -938,11 +1592,7 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
   };
 
   const activePlaceholder =
-    isEntryTableActive
-      ? copy.entriesTableLockedPlaceholder
-      : isArrestsTableActive
-        ? copy.arrestsTableLockedPlaceholder
-      : isConsultationMode && consultationStep !== "complete"
+    isConsultationMode && consultationStep !== "complete"
       ? copy.consultationPlaceholders[consultationStep as "entries" | "arrests" | "policeHelp"]
       : isConsultationMode
         ? copy.consultationFinishedPlaceholder
@@ -1109,6 +1759,16 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
                     <div className="mb-3">
                       <p className="text-sm font-semibold text-slate-900">{copy.entriesTableHeading}</p>
                       <p className="mt-1 text-xs leading-relaxed text-slate-600">{copy.entriesTableDescription}</p>
+                      {nextIncompleteTripField && (
+                        <p className="mt-2 rounded-md bg-white px-2 py-1 text-[11px] font-medium text-[#6d962c]">
+                          {getCurrentCollectionLabel(
+                            lang,
+                            "entries",
+                            nextIncompleteTripField.rowIndex,
+                            nextIncompleteTripField.field,
+                          )}
+                        </p>
+                      )}
                     </div>
                     <div className="overflow-x-auto">
                       <table className="min-w-full text-left text-xs text-slate-700">
@@ -1193,6 +1853,16 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
                     <div className="mb-3">
                       <p className="text-sm font-semibold text-slate-900">{copy.arrestsTableHeading}</p>
                       <p className="mt-1 text-xs leading-relaxed text-slate-600">{copy.arrestsTableDescription}</p>
+                      {nextIncompleteArrestField && (
+                        <p className="mt-2 rounded-md bg-white px-2 py-1 text-[11px] font-medium text-[#6d962c]">
+                          {getCurrentCollectionLabel(
+                            lang,
+                            "arrests",
+                            nextIncompleteArrestField.rowIndex,
+                            nextIncompleteArrestField.field,
+                          )}
+                        </p>
+                      )}
                     </div>
                     <div className="overflow-x-auto">
                       <table className="min-w-full text-left text-xs text-slate-700">
