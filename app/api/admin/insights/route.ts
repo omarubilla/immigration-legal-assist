@@ -1,5 +1,6 @@
 import { generateText, gateway } from "ai";
 import { client } from "@/sanity/lib/client";
+import { getSanityEnvError, hasSanityEnv } from "@/sanity/env";
 import {
   ORDERS_LAST_7_DAYS_QUERY,
   ORDER_STATUS_DISTRIBUTION_QUERY,
@@ -8,6 +9,8 @@ import {
   UNFULFILLED_ORDERS_QUERY,
   REVENUE_BY_PERIOD_QUERY,
 } from "@/lib/sanity/queries/stats";
+
+export const dynamic = "force-dynamic";
 
 interface OrderItem {
   quantity: number;
@@ -66,6 +69,16 @@ interface RevenuePeriod {
 
 export async function GET() {
   try {
+    if (!hasSanityEnv) {
+      return Response.json(
+        {
+          success: false,
+          error: getSanityEnvError(),
+        },
+        { status: 503 },
+      );
+    }
+
     // Calculate date ranges
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);

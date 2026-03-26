@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { Package, ArrowRight } from "lucide-react";
@@ -8,19 +9,28 @@ import { ORDERS_BY_USER_QUERY } from "@/lib/sanity/queries/orders";
 import { getOrderStatus } from "@/lib/constants/orderStatus";
 import { formatPrice, formatDate, formatOrderNumber } from "@/lib/utils";
 import { StackedProductImages } from "@/components/app/StackedProductImages";
+import { hasSanityEnv } from "@/sanity/env";
+import type { ORDERS_BY_USER_QUERYResult } from "@/sanity.types";
 
-export const metadata = {
-  title: "Your Orders | Furniture Shop",
-  description: "View your order history",
+export const metadata: Metadata = {
+  title: "Your Orders | South Bay Bio",
+  description: "View your South Bay Bio order history.",
+  robots: {
+    index: false,
+    follow: false,
+  },
 };
 
 export default async function OrdersPage() {
   const { userId } = await auth();
-
-  const { data: orders } = await sanityFetch({
-    query: ORDERS_BY_USER_QUERY,
-    params: { clerkUserId: userId ?? "" },
-  });
+  const orders: ORDERS_BY_USER_QUERYResult = hasSanityEnv
+    ? (
+        await sanityFetch({
+          query: ORDERS_BY_USER_QUERY,
+          params: { clerkUserId: userId ?? "" },
+        })
+      ).data
+    : [];
 
   if (orders.length === 0) {
     return (

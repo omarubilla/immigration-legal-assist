@@ -1,10 +1,15 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { SuccessClient } from "./SuccessClient";
 import { getCheckoutSession } from "@/lib/actions/checkout";
 
-export const metadata = {
-  title: "Order Confirmed | Furniture Shop",
-  description: "Your order has been placed successfully",
+export const metadata: Metadata = {
+  title: "Order Confirmed | South Bay Bio",
+  description: "Confirmation page for completed South Bay Bio orders.",
+  robots: {
+    index: false,
+    follow: false,
+  },
 };
 
 interface SuccessPageProps {

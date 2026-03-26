@@ -1,9 +1,21 @@
+import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, FlaskConical, Microscope, ScanSearch, TestTube2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { getRobotsValue, isProteasomeSeoExperiment } from "@/lib/site";
+
+export const metadata: Metadata = {
+  title: "Services | South Bay Bio",
+  description:
+    "Custom assay development, protein labeling, and purification services from South Bay Bio.",
+  alternates: {
+    canonical: "/services",
+  },
+  robots: getRobotsValue(!isProteasomeSeoExperiment()),
+};
 
 const PAGE_ANCHORS = [
   { label: "Overview", href: "#overview" },

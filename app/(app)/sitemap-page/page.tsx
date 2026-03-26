@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { getRobotsValue } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "Sitemap | South Bay Bio",
   description: "Complete sitemap links for south-bay-bio.com.",
+  robots: getRobotsValue(false),
 };
 
 const ROOT_DOMAIN = "https://www.south-bay-bio.com";

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -8,10 +9,15 @@ import { sanityFetch } from "@/sanity/lib/live";
 import { ORDER_BY_ID_QUERY } from "@/lib/sanity/queries/orders";
 import { getOrderStatus } from "@/lib/constants/orderStatus";
 import { formatPrice, formatDate } from "@/lib/utils";
+import { hasSanityEnv } from "@/sanity/env";
 
-export const metadata = {
-  title: "Order Details | Furniture Shop",
-  description: "View your order details",
+export const metadata: Metadata = {
+  title: "Order Details | South Bay Bio",
+  description: "View details for a South Bay Bio order.",
+  robots: {
+    index: false,
+    follow: false,
+  },
 };
 
 interface OrderPageProps {
@@ -21,6 +27,10 @@ interface OrderPageProps {
 export default async function OrderDetailPage({ params }: OrderPageProps) {
   const { id } = await params;
   const { userId } = await auth();
+
+  if (!hasSanityEnv) {
+    notFound();
+  }
 
   const { data: order } = await sanityFetch({
     query: ORDER_BY_ID_QUERY,

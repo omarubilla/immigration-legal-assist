@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { getRobotsValue, isProteasomeSeoExperiment } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "Terms of Sale | South Bay Bio",
   description:
     "Terms of Sale governing product purchases on South Bay Bio website.",
+  robots: getRobotsValue(!isProteasomeSeoExperiment()),
 };
 
 export default function PrivacyPolicyPage() {

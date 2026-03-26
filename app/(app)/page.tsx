@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { Suspense } from "react";
 import Link from "next/link";
 import { HandHeart, ShieldCheck, Truck } from "lucide-react";
@@ -16,6 +17,24 @@ import { FeaturedCarousel } from "@/components/app/FeaturedCarousel";
 import { FeaturedCarouselSkeleton } from "@/components/app/FeaturedCarouselSkeleton";
 import { NewsInlineCarousel } from "@/components/news/NewsInlineCarousel";
 import { newsItems } from "@/data/news";
+import { hasSanityEnv } from "@/sanity/env";
+import type {
+  ALL_CATEGORIES_QUERYResult,
+  FEATURED_PRODUCTS_QUERYResult,
+  FILTER_PRODUCTS_BY_NAME_QUERYResult,
+} from "@/sanity.types";
+import {
+  DEFAULT_SITE_DESCRIPTION,
+  getRobotsValue,
+  isProteasomeSeoExperiment,
+  SITE_NAME,
+} from "@/lib/site";
+
+export const metadata: Metadata = {
+  title: SITE_NAME,
+  description: DEFAULT_SITE_DESCRIPTION,
+  robots: getRobotsValue(!isProteasomeSeoExperiment()),
+};
 
 interface PageProps {
   searchParams: Promise<{
@@ -43,6 +62,9 @@ export default async function HomePage({ searchParams }: PageProps) {
   const maxPrice = Number(params.maxPrice) || 0;
   const sort = params.sort ?? "name";
   const inStock = params.inStock === "true";
+  let products: FILTER_PRODUCTS_BY_NAME_QUERYResult = [];
+  let categories: ALL_CATEGORIES_QUERYResult = [];
+  let featuredProducts: FEATURED_PRODUCTS_QUERYResult = [];
 
   // Select query based on sort parameter
   const getQuery = () => {
@@ -64,29 +86,39 @@ export default async function HomePage({ searchParams }: PageProps) {
   };
 
   // Fetch products with filters (server-side via GROQ)
-  const { data: products } = await sanityFetch({
-    query: getQuery(),
-    params: {
-      searchQuery,
-      categorySlug,
-      subcategorySlug,
-      color,
-      material,
-      minPrice,
-      maxPrice,
-      inStock,
-    },
-  });
+  if (hasSanityEnv) {
+    try {
+      const [productsResult, categoriesResult, featuredProductsResult] = await Promise.all([
+        sanityFetch({
+          query: getQuery(),
+          params: {
+            searchQuery,
+            categorySlug,
+            subcategorySlug,
+            color,
+            material,
+            minPrice,
+            maxPrice,
+            inStock,
+          },
+        }),
+        sanityFetch({
+          query: ALL_CATEGORIES_QUERY,
+        }),
+        sanityFetch({
+          query: FEATURED_PRODUCTS_QUERY,
+        }),
+      ]);
 
-  // Fetch categories for filter sidebar
-  const { data: categories } = await sanityFetch({
-    query: ALL_CATEGORIES_QUERY,
-  });
-
-  // Fetch featured products for carousel
-  const { data: featuredProducts } = await sanityFetch({
-    query: FEATURED_PRODUCTS_QUERY,
-  });
+      products = productsResult.data;
+      categories = categoriesResult.data;
+      featuredProducts = featuredProductsResult.data;
+    } catch {
+      products = [];
+      categories = [];
+      featuredProducts = [];
+    }
+  }
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900">
@@ -164,11 +196,10 @@ export default async function HomePage({ searchParams }: PageProps) {
                   </div>
                   <div className="min-w-0">
                     <h3 className="text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-100">
-                      Fast shipping
+                      Direct Shipping to Europe
                     </h3>
                     <p className="mt-2 text-base leading-6 text-zinc-600 dark:text-zinc-300">
-                      Enjoy seamless shopping with our worldwide shipping
-                      service.
+                      For oders over $1,000, 50% off overseas shipments.
                     </p>
                   </div>
                 </article>

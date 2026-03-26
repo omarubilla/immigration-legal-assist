@@ -12,6 +12,7 @@ import {
 } from "@/lib/sanity/queries/categories";
 import { ProductSection } from "@/components/app/ProductSection";
 import { CategoryTiles } from "@/components/app/CategoryTiles";
+import { hasSanityEnv } from "@/sanity/env";
 
 export interface CategorySearchParams {
   q?: string;
@@ -35,6 +36,10 @@ export async function CategoryPageTemplate({
   slug: string;
   searchParams: Promise<CategorySearchParams>;
 }) {
+  if (!hasSanityEnv) {
+    notFound();
+  }
+
   const queryParams = await searchParams;
 
   const searchQuery = queryParams.q ?? "";

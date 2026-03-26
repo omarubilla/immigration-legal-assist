@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { getRobotsValue } from "@/lib/site";
 
 type ProteasomeSection =
   | "20S Immunoproteasomes"
@@ -135,6 +136,10 @@ export const metadata: Metadata = {
   title: "Proteasome | South Bay Bio",
   description:
     "Proteasome category landing page with immunoproteasomes, proteasomes, substrates, and kits.",
+  alternates: {
+    canonical: "/proteasome",
+  },
+  robots: getRobotsValue(true),
 };
 
 export default function ProteasomeLandingPage() {
