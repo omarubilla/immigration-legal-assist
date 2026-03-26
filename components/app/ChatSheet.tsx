@@ -20,11 +20,10 @@ import {
   ToolCallUI,
 } from "./chat";
 
-export function ChatSheet() {
+function ChatSheetContent({ isSignedIn }: { isSignedIn: boolean }) {
   const isOpen = useIsChatOpen();
   const { closeChat, clearPendingMessage } = useChatActions();
   const pendingMessage = usePendingMessage();
-  const { isSignedIn } = useAuth();
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -168,4 +167,25 @@ export function ChatSheet() {
       </div>
     </>
   );
+}
+
+function ChatSheetWithAuth() {
+  const { isSignedIn } = useAuth();
+  return <ChatSheetContent isSignedIn={isSignedIn ?? false} />;
+}
+
+function ChatSheetWithoutAuth() {
+  return <ChatSheetContent isSignedIn={false} />;
+}
+
+export function ChatSheet() {
+  const hasClerkPublishableKey = Boolean(
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+  );
+
+  if (!hasClerkPublishableKey) {
+    return <ChatSheetWithoutAuth />;
+  }
+
+  return <ChatSheetWithAuth />;
 }

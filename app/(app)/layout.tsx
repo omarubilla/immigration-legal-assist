@@ -14,6 +14,9 @@ import { ALL_CATEGORIES_QUERY } from "@/lib/sanity/queries/categories";
 import type { ALL_CATEGORIES_QUERYResult } from "@/sanity.types";
 
 async function AppLayout({ children }: { children: React.ReactNode }) {
+  const hasClerkPublishableKey = Boolean(
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+  );
   let categories: ALL_CATEGORIES_QUERYResult = [];
 
   if (hasSanityEnv) {
@@ -27,8 +30,8 @@ async function AppLayout({ children }: { children: React.ReactNode }) {
     }
   }
 
-  return (
-    <ClerkProvider>
+  const appContent = (
+    <>
       <CurrencyProvider>
         <CartStoreProvider>
           <ChatStoreProvider>
@@ -43,8 +46,14 @@ async function AppLayout({ children }: { children: React.ReactNode }) {
           </ChatStoreProvider>
         </CartStoreProvider>
       </CurrencyProvider>
-    </ClerkProvider>
+    </>
   );
+
+  if (!hasClerkPublishableKey) {
+    return appContent;
+  }
+
+  return <ClerkProvider>{appContent}</ClerkProvider>;
 }
 
 export default AppLayout;
