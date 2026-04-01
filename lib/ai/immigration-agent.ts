@@ -11,7 +11,7 @@ const anthropic = createAnthropic({
 
 const getServiceInfoTool = tool({
   description:
-    "Look up detailed information about a specific immigration legal service offered by Jaime Barron PC, such as family immigration, business immigration, deportation defense, humanitarian relief, or consular processing.",
+    "Look up detailed information about a specific immigration legal service offered by Law Offices PC, such as family immigration, business immigration, deportation defense, humanitarian relief, or consular processing.",
   inputSchema: z.object({
     service: z
       .enum([
@@ -145,7 +145,7 @@ const getServiceInfoTool = tool({
 
 const getLocationInfoTool = tool({
   description:
-    "Get office locations, phone numbers, and hours for Jaime Barron PC offices.",
+    "Get office locations, phone numbers, and hours for Law Offices PC offices.",
   inputSchema: z.object({
     city: z
       .enum([
@@ -270,7 +270,7 @@ const getFAQAnswerTool = tool({
       "case-status": {
         question: "How can I check my case status?",
         answer:
-          "For USCIS cases, you can check your case status at uscis.gov/case-status using your receipt number (starts with EAC, WAC, SRC, LIN, IOE, or NBC). For cases in immigration court, you can call the EOIR automated hotline at 1-800-898-7180. Your Jaime Barron PC attorney can also provide updates — contact your assigned attorney directly.",
+          "For USCIS cases, you can check your case status at uscis.gov/case-status using your receipt number (starts with EAC, WAC, SRC, LIN, IOE, or NBC). For cases in immigration court, you can call the EOIR automated hotline at 1-800-898-7180. Your Law Offices PC attorney can also provide updates — contact your assigned attorney directly.",
       },
       languages: {
         question: "What languages do you support?",
@@ -299,12 +299,12 @@ const getFAQAnswerTool = tool({
 
 // ─── Agent factory ────────────────────────────────────────────────────────────
 
-const systemPrompt = `You are a warm, knowledgeable immigration law assistant for the Law Offices of Jaime Barron, PC — a leading U.S. immigration law firm with offices in Dallas, Fort Worth, Garland, Plano, Irving, Washington D.C., and Seattle.
+const systemPrompt = `You are a warm, knowledgeable immigration law assistant for the Law Offices of Law Offices, PC — a leading U.S. immigration law firm with offices in Dallas, Fort Worth, Garland, Plano, Irving, Washington D.C., and Seattle.
 
 ## Your Role
 You help website visitors understand:
 - U.S. immigration processes, visa types, and pathways
-- Services offered by Jaime Barron PC
+- Services offered by Law Offices PC
 - How to schedule a consultation
 - Office locations and contact information
 - General immigration FAQs

@@ -955,7 +955,7 @@ function getBinaryAnswerLabel(lang: LangCode, value: BinaryAnswer): string {
 
 function buildPoliceHelpNarrativeReadback(lang: LangCode, narrative: string): string {
   if (lang === "es") {
-    return `Entendi esto para su posible U-Visa: ${narrative}`;
+    return `Te entendí así para tu posible U-Visa: ${narrative}`;
   }
 
   return `Here is what I understood for your possible U-Visa claim: ${narrative}`;
@@ -980,31 +980,31 @@ function buildPoliceHelpFinalSummary(args: {
 
   if (lang === "es") {
     const details = [
-      `Resumen U-Visa para confirmar:`,
-      `1) Lo que usted reporta: ${narrative}`,
-      `2) Se tomo reporte policial: ${getBinaryAnswerLabel(lang, reportTaken)}`,
-      `3) Su nombre aparece en el reporte: ${getBinaryAnswerLabel(lang, nameListed)}`,
-      `4) Tiene copia del reporte: ${getBinaryAnswerLabel(lang, hasReportCopy)}`,
-      `5) Quiere que la firma le ayude a obtener el reporte: ${getBinaryAnswerLabel(lang, wantsFirmRequest)}`,
+      `Perfecto, este es el resumen de tu posible U-Visa:`,
+      `1) Lo que me contaste: ${narrative}`,
+      `2) Se levantó reporte policial: ${getBinaryAnswerLabel(lang, reportTaken)}`,
+      `3) Tu nombre aparece en ese reporte: ${getBinaryAnswerLabel(lang, nameListed)}`,
+      `4) Tienes copia del reporte: ${getBinaryAnswerLabel(lang, hasReportCopy)}`,
+      `5) Quieres que la firma te ayude a conseguir el reporte: ${getBinaryAnswerLabel(lang, wantsFirmRequest)}`,
     ];
 
     if (reportTaken === "yes" && nameListed === "yes" && hasReportCopy === "yes") {
       details.push(
-        `Siguiente paso: por favor envielo a jaimebarron@legal.com o suba una foto del reporte en este chat.`,
+        `Siguiente paso: por favor envíalo a jaimebarron@legal.com o sube una foto del reporte en este chat.`,
       );
     } else if (reportTaken === "yes" && nameListed === "yes" && hasReportCopy !== "yes") {
       if (wantsFirmRequest === "yes") {
-        details.push(`Siguiente paso: perfecto, nuestro equipo legal puede ayudarle a solicitar ese reporte policial.`);
+        details.push(`Siguiente paso: perfecto, nuestro equipo legal te puede ayudar a solicitar ese reporte policial.`);
       } else {
         details.push(
-          `Siguiente paso: por favor consiga una copia del reporte y luego enviela a jaimebarron@legal.com o suba una foto en este chat.`,
+          `Siguiente paso: por favor consigue una copia del reporte y luego envíala a jaimebarron@legal.com o súbela como foto en este chat.`,
         );
       }
     } else {
-      details.push(`Siguiente paso: un abogado revisara su caso para confirmar la mejor estrategia y elegibilidad para U-Visa.`);
+      details.push(`Siguiente paso: un abogado va a revisar tu caso para confirmar la mejor estrategia y tu posible elegibilidad para U-Visa.`);
     }
 
-    details.push("Es correcto todo lo anterior? Responda si o no.");
+    details.push("¿Está correcto todo lo anterior? Respóndeme sí o no.");
     return details.join("\n");
   }
 
@@ -1687,7 +1687,7 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
         role: "assistant",
         text:
           `${buildPoliceHelpNarrativeReadback(lang, narrative)}\n\n` +
-          (lang === "es" ? "Es correcto? Responda si o no." : "Is that correct? Please answer yes or no."),
+          (lang === "es" ? "¿Así está correcto? Respóndeme sí o no." : "Is that correct? Please answer yes or no."),
       });
       return;
     }
@@ -1699,7 +1699,7 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
           role: "assistant",
           text:
             lang === "es"
-              ? "Gracias. Primera pregunta clave: se tomo un reporte policial oficial?"
+              ? "Gracias. Primera cosa clave: ¿sí se tomó un reporte policial oficial?"
               : "Thank you. First key detail: was an official police report taken?",
         });
         return;
@@ -1712,7 +1712,7 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
           role: "assistant",
           text:
             lang === "es"
-              ? "Gracias por corregirme. Por favor expliquelo otra vez brevemente y lo vuelvo a confirmar."
+              ? "Gracias por corregirme. Cuéntamelo otra vez, breve, y te lo confirmo de nuevo."
               : "Thanks for correcting me. Please explain it again briefly and I will confirm it again.",
         });
         return;
@@ -1720,7 +1720,7 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
 
       pushConsultationMessages({
         role: "assistant",
-        text: lang === "es" ? "Solo para confirmar, responda si o no." : "Just to confirm, please answer yes or no.",
+        text: lang === "es" ? "Solo para confirmar, respóndeme sí o no." : "Just to confirm, please answer yes or no.",
       });
       return;
     }
@@ -1732,7 +1732,7 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
           role: "assistant",
           text:
             lang === "es"
-              ? "Necesito confirmar: se tomo reporte policial? Responda si, no, o no esta seguro."
+              ? "Para dejarlo claro: ¿se tomó reporte policial? Responde sí, no, o no estoy seguro(a)."
               : "I need to confirm: was a police report taken? Answer yes, no, or not sure.",
         });
         return;
@@ -1744,7 +1744,7 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
         role: "assistant",
         text:
           lang === "es"
-            ? "Segunda pregunta clave: su nombre aparece en ese reporte policial?"
+            ? "Segunda cosa clave: ¿tu nombre aparece en ese reporte policial?"
             : "Second key detail: is your name listed on that police report?",
       });
       return;
@@ -1757,7 +1757,7 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
           role: "assistant",
           text:
             lang === "es"
-              ? "Necesito confirmar: su nombre aparece en el reporte? Responda si, no, o no esta seguro."
+              ? "Para confirmar bien: ¿tu nombre aparece en el reporte? Responde sí, no, o no estoy seguro(a)."
               : "I need to confirm: is your name listed in the report? Answer yes, no, or not sure.",
         });
         return;
@@ -1771,7 +1771,7 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
           role: "assistant",
           text:
             lang === "es"
-              ? "Tiene una copia del reporte policial en este momento?"
+              ? "¿Ahorita tienes una copia del reporte policial?"
               : "Do you currently have a copy of the police report?",
         });
         return;
@@ -1783,7 +1783,7 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
         role: "assistant",
         text:
           lang === "es"
-            ? "Si no tiene ese reporte, quiere que le ayudemos a solicitarlo? Tambien puede obtenerlo usted y compartirlo despues."
+            ? "Si no tienes ese reporte, ¿quieres que te ayudemos a pedirlo? También lo puedes sacar tú y compartirlo después."
             : "If you do not have the report, would you like us to help request it? You can also obtain it and share it later.",
       });
       return;
@@ -1796,7 +1796,7 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
           role: "assistant",
           text:
             lang === "es"
-              ? "Tiene copia del reporte ahora? Responda si, no, o no esta seguro."
+              ? "¿Tienes copia del reporte ahorita? Responde sí, no, o no estoy seguro(a)."
               : "Do you have a copy of the report now? Answer yes, no, or not sure.",
         });
         return;
@@ -1825,7 +1825,7 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
         role: "assistant",
         text:
           lang === "es"
-            ? "Entendido. Quiere que la firma le ayude a obtener ese reporte policial? Si prefiere, tambien puede ir a pedirlo y luego enviarlo."
+            ? "Entendido. ¿Quieres que la firma te ayude a conseguir ese reporte policial? Si prefieres, también puedes ir a pedirlo y luego enviarlo."
             : "Understood. Do you want our firm to help obtain that police report? You can also request it yourself and send it later.",
       });
       return;
@@ -1838,7 +1838,7 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
           role: "assistant",
           text:
             lang === "es"
-              ? "Para confirmar: quiere que la firma le ayude a obtener el reporte? Responda si, no, o no esta seguro."
+              ? "Para confirmar: ¿quieres que la firma te ayude a obtener el reporte? Responde sí, no, o no estoy seguro(a)."
               : "To confirm: do you want the firm to help obtain the report? Answer yes, no, or not sure.",
         });
         return;
@@ -1875,7 +1875,7 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
           role: "assistant",
           text:
             lang === "es"
-              ? "Gracias. Corrijamos todo desde el inicio para verificar bien su reclamo U-Visa. Expliqueme otra vez que paso con la policia."
+              ? "Perfecto, lo corregimos desde el inicio para dejarlo bien. Cuéntame otra vez qué pasó con la policía."
               : "Thank you. Let's correct everything from the start so we can verify your U-Visa claim. Please explain again what happened with police.",
         });
         return;
@@ -1883,7 +1883,7 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
 
       pushConsultationMessages({
         role: "assistant",
-        text: lang === "es" ? "Para cerrar, confirme con si o no." : "To finish, please confirm with yes or no.",
+        text: lang === "es" ? "Para cerrar, confírmame con sí o no." : "To finish, please confirm with yes or no.",
       });
     }
   };
@@ -2430,7 +2430,7 @@ export function ImmigrationChatSheet({ isOpen, onClose }: ImmigrationChatSheetPr
               )}
               <Scale className="h-5 w-5" />
               <div>
-                <p className="text-sm font-bold leading-none">Jaime Barron PC</p>
+                <p className="text-sm font-bold leading-none">Law Offices PC</p>
                 <p className="text-xs text-slate-800/80 mt-0.5">{copy.assistantLabel}</p>
               </div>
             </div>

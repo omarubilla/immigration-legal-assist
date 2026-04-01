@@ -26,7 +26,7 @@ const welcomeContent: Record<
     description:
       "Ask me anything about U.S. immigration law, visa options, or our legal services. I'm here to help.",
     serviceLabel: "Immigration questions",
-    firmLabel: "About Jaime Barron PC",
+    firmLabel: "About Law Offices PC",
     serviceSuggestions: [
       "How do I get a green card?",
       "What is the H-1B visa process?",
@@ -47,7 +47,7 @@ const welcomeContent: Record<
     description:
       "Preguntame sobre inmigracion en Estados Unidos, opciones de visa o nuestros servicios legales. Estoy aqui para ayudar.",
     serviceLabel: "Preguntas de inmigracion",
-    firmLabel: "Sobre Jaime Barron PC",
+    firmLabel: "Sobre Law Offices PC",
     serviceSuggestions: [
       "Como obtengo una green card?",
       "Cual es el proceso de la visa H-1B?",
@@ -68,7 +68,7 @@ const welcomeContent: Record<
     description:
       "Pergunte sobre imigracao nos Estados Unidos, opcoes de visto ou nossos servicos juridicos. Estou aqui para ajudar.",
     serviceLabel: "Perguntas sobre imigracao",
-    firmLabel: "Sobre Jaime Barron PC",
+    firmLabel: "Sobre Law Offices PC",
     serviceSuggestions: [
       "Como consigo um green card?",
       "Como funciona o processo do visto H-1B?",
@@ -89,7 +89,7 @@ const welcomeContent: Record<
     description:
       "Posez-moi vos questions sur l'immigration aux Etats-Unis, les options de visa ou nos services juridiques. Je suis la pour vous aider.",
     serviceLabel: "Questions d'immigration",
-    firmLabel: "A propos de Jaime Barron PC",
+    firmLabel: "A propos de Law Offices PC",
     serviceSuggestions: [
       "Comment obtenir une green card ?",
       "Quel est le processus du visa H-1B ?",

@@ -11,7 +11,7 @@ import { NewsSection } from "@/components/demo/jaime-barron/NewsSection";
 import { AskAIButton } from "@/components/demo/jaime-barron/chat/AskAIButton";
 
 export const metadata: Metadata = {
-  title: "Law Offices of Jaime Barron, PC - Immigration Law",
+  title: "Law Offices, PC - Immigration Law",
   description:
     "Expert immigration law services. Personalized guidance for your visa, green card, and immigration needs.",
 };
@@ -71,7 +71,7 @@ export default function JaimeBarronPage() {
             </div>
           </div>
           <div className="border-t border-gray-700 pt-8 text-center text-sm text-gray-400">
-            <p>&copy; 2025 Law Offices of Jaime Barron, PC. All rights reserved.</p>
+            <p>&copy; 2026 Law Offices, PC. All rights reserved.</p>
           </div>
         </div>
       </footer>

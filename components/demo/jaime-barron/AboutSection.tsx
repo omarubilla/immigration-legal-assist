@@ -19,7 +19,7 @@ export function AboutSection() {
               Beyond the Suit: Unconventional Lawyers
             </h2>
             <p className="text-lg text-gray-700 mb-6 leading-relaxed">
-              We are Jaime Barron, P.C., and our approach to immigration law goes beyond typical
+              We are Law Offices, P.C., and our approach to immigration law goes beyond typical
               legal formality. What makes us uniquely effective is deeply personal: our attorneys
               and support staff include immigrants who have navigated the very system you're
               facing, or have family who have.

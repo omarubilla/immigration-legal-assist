@@ -1,7 +1,7 @@
-export const SITE_NAME = "South Bay Bio";
+export const SITE_NAME = "Legal Assist";
 
 export const DEFAULT_SITE_DESCRIPTION =
-  "Biotech reagents, proteasome assay kits, and custom biochemical solutions for research and drug discovery.";
+  "Legal Assist by Law Offices, PC helps families complete secure immigration intake and get clear next steps.";
 
 const PRODUCTION_SITE_URL = "https://www.south-bay-bio.com";
 

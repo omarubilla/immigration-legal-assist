@@ -11,7 +11,7 @@ export function CommunitySection() {
               Community Involvement
             </h2>
             <p className="text-lg text-gray-700 mb-6 leading-relaxed">
-              At Jaime Barron PC, our mission goes beyond the courtroom. We are deeply committed
+              At Law Offices PC, our mission goes beyond the courtroom. We are deeply committed
               to empowering the communities we serve through practical education, dedicated
               outreach, and direct support.
             </p>
