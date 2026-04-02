@@ -302,7 +302,6 @@ const MONTHS_BY_TOKEN: Record<string, string> = {
   dec: "12",
   decembre: "12",
   décembre: "12",
-  dezembro: "12",
 };
 
 const SEASONS_BY_TOKEN: Record<string, string> = {
@@ -312,8 +311,6 @@ const SEASONS_BY_TOKEN: Record<string, string> = {
   verano: "07",
   ete: "07",
   eté: "07",
-  ete: "07",
-  verano: "07",
   verao: "07",
   verão: "07",
   fall: "10",
